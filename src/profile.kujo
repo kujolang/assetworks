@@ -1,0 +1,7 @@
+export func profile() { return {
+    "name":"AssetWorks", "slug":"assetworks", "version":"0.1.0", "contract_version":"1.0.0",
+    "description":"Local-first media asset planning, provenance, accessibility, and validation.", "default_state":".assetworks",
+    "commands":["init","plan","inspect","render","convert","resize","captions","transcript","thumbnail","manifest","validate","report","history","show","export","doctor","version"],
+    "show_commands":["inspect","show"], "list_commands":["report","history"], "list_kinds":{}, "validate_commands":["validate"], "export_commands":["export"], "diff_commands":[],
+    "limitations":["Core records and validates assets; codec execution requires an explicitly named adapter.","No hosted identity or distributed locking is claimed."]
+} }

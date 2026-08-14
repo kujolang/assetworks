@@ -1,15 +1,61 @@
 # AssetWorks
 
-Controlled media inspection, production jobs, variants, captions, transcripts, accessibility, provenance, and manifests.
+[![Version](https://img.shields.io/badge/version-0.1.0-black)](VERSION)
+[![CI](https://github.com/kujolang/assetworks/actions/workflows/validate.yml/badge.svg)](https://github.com/kujolang/assetworks/actions/workflows/validate.yml)
+[![License](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
+[![built with Kujo](https://img.shields.io/badge/built%20with-Kujo-white.svg)](https://github.com/kujolang/kujo)
 
-AssetWorks 0.1.0 is an independently installable, local-first Kujo tool. It requires no hosted service, Chain of Command, WebOps, or sibling Publishing House tool. The canonical entrypoint is `assetworks.kujo`; `bin/assetworks` contains no product logic.
+AssetWorks is a local-first Kujo tool for media asset planning, immutable provenance, accessibility artifacts, and checksum-backed validation. It has no required hosted service, database server, model key, or sibling-tool dependency.
 
-## CLI
+## Readiness posture
 
-Commands: plan; inspect; render; convert; resize; captions; transcript; thumbnail; validate; manifest; report; doctor; version; init; show; export; history. Run `./bin/assetworks help` for flags. Mutations require `--actor`; JSON input uses `--input`. Common flags include `--json`, `--dry-run`, `--state`, `--output`, `--config`, and `--force`. Exit codes: 0 success, 1 validation/operation failure, 2 usage error.
+AssetWorks is ready for serious standalone workflows: immutable records, append-only audit events, atomic writes, per-record locks, bounded inputs and queries, structured errors, deterministic fixtures, strict domain contracts, and explicit authority boundaries. Optional external capabilities fail honestly when no adapter is configured. It does not claim hosted identity or distributed multi-host coordination.
 
-State defaults to `.assetworks/`. Immutable JSON records and append-only history use atomic writes. IDs reject traversal; symlinks and oversized inputs are rejected. See [contracts](docs/contracts.md), [security](docs/security.md), and [quickstart](examples/quickstart.md).
+See the [production review](docs/PRODUCTION_READINESS_REVIEW.md) and [next-session worklist](docs/NEXT_SESSION.md).
 
-Test with `/Users/robertdevore/2026/Kujolang/kujo-repos/kujo/target/release/kujo run tests/test.kujo`, then run `./bin/assetworks doctor --json`.
+## Quick install
 
-0.1.0 covers the documented local records, fixtures, validation, checksums, deterministic fixed-time IDs, and structured export. It does not manufacture human judgment, consent, rights, approval, or causation. Kujo 1.0.1 directly supports file validation, checksums, copying, manifests, captions, transcripts, and provenance; codec transforms, pixel resize, thumbnail rendering, and media probing are unavailable without explicit optional adapters.
+Requires Kujo 1.0.1 or newer.
+
+```bash
+git clone https://github.com/kujolang/assetworks.git
+cd assetworks
+export KUJO_BIN=/absolute/path/to/kujo
+export PATH="$PWD/bin:$PATH"
+assetworks --version --json
+assetworks doctor --json
+```
+
+## Quick start
+
+```bash
+assetworks init --state .assetworks --json
+assetworks plan --input fixtures/core.json --actor producer --json
+assetworks validate --json
+assetworks export --output assetworks-export.json --json
+```
+
+Run `assetworks --help` for the complete command surface. Common flags include `--state`, `--config`, `--input`, `--actor`, `--timestamp`, `--id`, `--path`, `--type`, `--after`, `--limit`, `--output`, `--force`, `--dry-run`, and `--json`. JSON mode uses the stable `ok/data/error/error_code/tool_version/contract_version` envelope. Exit codes are 0 success, 1 operational failure, and 2 usage error.
+
+State defaults to `.assetworks/`. Traversal, symlinks, secret-shaped fields, malformed JSON, incompatible schemas, duplicate IDs, checksum drift, oversized resources, and unsafe overwrites fail closed. Core behavior is implemented entirely in Kujo; adapters remain optional.
+
+## Project structure
+
+```text
+assetworks.kujo       canonical entrypoint
+src/                  CLI, domain, storage, and shared Kujo modules
+tests/                regression, security, and domain suites
+schemas/              public JSON contracts
+fixtures/             deterministic offline inputs
+scripts/              validation gates
+docs/                 contracts, security, review, and future work
+bin/assetworks        logic-free launcher
+```
+
+## Verification
+
+```bash
+bash scripts/validate.sh
+```
+
+The gate checks the entrypoint, every Kujo suite, JSON artifacts, CLI smoke paths, foreign-runtime boundaries, and the Git diff.
