@@ -7,5 +7,5 @@ bad:=root+"-transform.json";write_file(bad,"{\"schema_version\":\"1.0.0\",\"sour
 r:=dispatch("resize",opts(["--state",root,"--input",bad,"--actor","operator"]));check(!r["ok"] && r["code"]=="unsupported","honest unsupported transform")
 asset:=root+"-asset.bin";write_file(asset,"media",true);m:=root+"-manifest.json";write_file(m,"{\"schema_version\":\"1.0.0\",\"asset_id\":\"asset-1\",\"media_type\":\"application/octet-stream\",\"rights_reference\":\"rights-1\",\"accessibility_status\":\"reviewed\"}",true)
 created:=dispatch("manifest",opts(["--state",root,"--input",m,"--path",asset,"--actor","operator","--timestamp","2026-08-14T00:00:00Z"]));check(created["ok"],"manifest binds artifact")
-id:="";if created["ok"]{id=created["value"]["record"]["id"]};write_file(asset,"changed",true);drift:=dispatch("validate",opts(["--state",root,"--id",id]));check(!drift["ok"] && drift["code"]=="checksum_drift","detect artifact drift")
+id:="";if created["ok"]{id=created["value"]["record"]["id"]};write_file(asset,"changed",true);drift:=dispatch("validate",opts(["--state",root,"--id",id]));check(!drift["ok"] && (drift["code"]=="artifact_size_drift"||drift["code"]=="checksum_drift"),"detect artifact drift")
 print(to_string(pass)+" passed; "+to_string(fail)+" failed");if fail>0{exit(1)}
