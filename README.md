@@ -7,11 +7,11 @@
 
 AssetWorks is a local-first Kujo tool for media asset planning, immutable provenance, accessibility artifacts, and checksum-backed validation. It has no required hosted service, database server, model key, or sibling-tool dependency.
 
-## Readiness posture
+## Production capabilities
 
-AssetWorks is ready for serious standalone workflows: immutable records, append-only audit events, atomic writes, per-record locks, bounded inputs and queries, structured errors, deterministic fixtures, strict domain contracts, and explicit authority boundaries. Optional external capabilities fail honestly when no adapter is configured. It does not claim hosted identity or distributed multi-host coordination.
+AssetWorks provides immutable records, append-only audit events, atomic writes, per-record locks, bounded inputs and queries, structured errors, deterministic media probes, FFmpeg/image adapter conformance, 64 MiB..4 GiB streaming checksums, optional signed manifests, and a three-platform contention gate. Optional external capabilities fail honestly when no adapter is configured. It does not claim hosted identity or distributed multi-host coordination.
 
-See the [production review](docs/PRODUCTION_READINESS_REVIEW.md) and [next-session worklist](docs/NEXT_SESSION.md).
+See the [production review](docs/PRODUCTION_READINESS_REVIEW.md) and completed [hardening worklist](docs/NEXT_SESSION.md).
 
 ## Quick install
 
