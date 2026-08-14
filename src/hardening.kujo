@@ -1,0 +1,31 @@
+from src.common import get, has, canonical_json
+
+export func adapter_conformance(receipt) {
+    if type(receipt)!="dict"||!has(["ffmpeg","image-processing"],get(receipt,"provider_class","")){return {"ok":false,"error":"provider_class must be ffmpeg or image-processing"}}
+    if get(receipt,"explicit_binary",false)!=true||get(receipt,"network_access",true)!=false{return {"ok":false,"error":"adapter must declare an explicit binary and offline execution"}}
+    capabilities:=get(receipt,"capabilities",[]);if type(capabilities)!="array"||len(capabilities)==0||len(capabilities)>100{return {"ok":false,"error":"capabilities must contain 1..100 entries"}}
+    return {"ok":true,"conformant":true,"provider_class":receipt["provider_class"],"capabilities":capabilities}
+}
+
+export func streaming_checksum(path, maximum_bytes) {
+    if !path_is_file(path)||path_is_symlink(path){return {"ok":false,"error":"checksum input must be a regular non-symlink file"}}
+    bytes:=file_size(path);if maximum_bytes<67108865||maximum_bytes>4294967296||bytes>maximum_bytes{return {"ok":false,"error":"file exceeds configured 64 MiB..4 GiB streaming bound"}}
+    return {"ok":true,"algorithm":"sha256","sha256":sha256_file(path),"bytes":bytes,"streaming":true}
+}
+
+export func validate_probe(probe) {
+    if type(probe)!="dict"||type(get(probe,"duration_ms",null))!="int"||probe["duration_ms"]<0{return {"ok":false,"error":"duration_ms must be a non-negative integer"}}
+    if type(get(probe,"width",null))!="int"||type(get(probe,"height",null))!="int"||probe["width"]<1||probe["height"]<1{return {"ok":false,"error":"dimensions must be positive integers"}}
+    codecs:=get(probe,"codecs",[]);if type(codecs)!="array"||len(codecs)==0||len(codecs)>32{return {"ok":false,"error":"codecs must contain 1..32 entries"}}
+    return {"ok":true,"normalized":{"duration_ms":probe["duration_ms"],"width":probe["width"],"height":probe["height"],"codecs":codecs}}
+}
+
+export func sign_manifest(manifest, signing_key) { if type(manifest)!="dict"||type(signing_key)!="string"||len(signing_key)<16{return {"ok":false,"error":"an explicit 16+ byte signing key is required"}};payload:=canonical_json(manifest);return {"ok":true,"algorithm":"hmac-sha256","manifest_sha256":sha256(payload),"signature":hmac_sha256(signing_key,payload)} }
+export func verify_manifest(manifest,signature,verification_key){signed:=sign_manifest(manifest,verification_key);return signed["ok"]&&signed["signature"]==signature}
+
+export func contention_result(result) {
+    if type(result)!="dict"||!has(["linux","macos","windows"],get(result,"platform","")){return {"ok":false,"error":"unsupported benchmark platform"}}
+    workers:=get(result,"workers",0);attempted:=get(result,"attempted",0);stored:=get(result,"stored",-1)
+    if workers<2||workers>64||attempted<workers||stored!=attempted{return {"ok":false,"error":"contention benchmark lost or duplicated records"}}
+    return {"ok":true,"platform":result["platform"],"workers":workers,"records":stored}
+}
