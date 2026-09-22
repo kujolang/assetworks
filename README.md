@@ -53,6 +53,8 @@ assetworks export --output assetworks-export.json --json
 
 Run `assetworks --help` for the complete command surface. Common flags include `--state`, `--config`, `--input`, `--actor`, `--timestamp`, `--id`, `--path`, `--type`, `--after`, `--limit`, `--output`, `--force`, `--dry-run`, and `--json`. JSON mode uses the stable `ok/data/error/error_code/tool_version/contract_version` envelope. Exit codes are 0 success, 1 operational failure, and 2 usage error.
 
+The launcher isolates its Kujo imports from the caller’s modules and lockfile while preserving the caller’s working directory for state and relative input paths.
+
 State defaults to `.assetworks/`. Use operator-controlled directories and canonical paths without symlinked ancestors. Inputs and individual records are capped at 1 MiB; CLI attachments default to 64 MiB; `--max-artifact-bytes` explicitly raises the limit up to 4 GiB. `--dry-run` validates a proposed record without creating state. It does not reserve an ID.
 
 Lists and exports inspect at most 1,000 JSON filenames per page and enforce aggregate byte budgets. Resume using the returned `next_after`, even on an empty filtered page. [Whole-state validation has three independent resumable cursors](docs/PAGINATION.md) and never reports an unfinished audit as complete. Doctor remains a bounded first-page diagnostic. Exports into the active state directory are refused even with `--force`. Case-equivalent state names are conservatively reserved across platforms.

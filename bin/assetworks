@@ -1,4 +1,4 @@
 #!/bin/sh
 set -eu
 KUJO_BIN=${KUJO_BIN:-kujo}
-exec "$KUJO_BIN" run "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/assetworks.kujo" -- "$@"
+exec "$KUJO_BIN" run --isolated-imports "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/assetworks.kujo" -- "$@"

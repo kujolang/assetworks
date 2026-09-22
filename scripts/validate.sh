@@ -40,6 +40,7 @@ if KUJO_BIN="$KUJO_RUNTIME" ./bin/assetworks --version --bogus >/dev/null 2>&1; 
   printf 'validation failed: version accepted unknown flags.\n' >&2; exit 1
 fi
 KUJO_BIN="$KUJO_RUNTIME" ./bin/assetworks doctor --state "$tmp_state/state" --json >/dev/null
+KUJO_BIN="$KUJO_RUNTIME" "$KUJO_RUNTIME" run scripts/release_smoke.kujo -- "$ROOT"
 if grep -REn --include='*.kujo' 'python3|node |\.py\b|\.mjs\b' src tests scripts assetworks.kujo kujo.toml; then
   printf 'assetworks validation failed: foreign runtime dependency reference found.\n' >&2; exit 1
 fi

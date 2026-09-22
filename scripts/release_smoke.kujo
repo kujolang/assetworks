@@ -1,0 +1,31 @@
+// Run against an extracted release directory with the downloaded runtime.
+// The same checks also exercise the candidate before publication.
+from tests.support import test_root, cleanup_tree
+arguments := args()
+if len(arguments)!=1 { throw("usage: release_smoke.kujo -- ABSOLUTE_INSTALL_DIRECTORY") }
+func portable_path(path) {
+    result := replace_str(path_absolute(path),"\\","/")
+    if starts_with(result,"//?/") { result=substring(result,4,len(result)) }
+    return result
+}
+installed := portable_path(arguments[0]); runtime := env("KUJO_BIN")
+if type(runtime)!="string" || runtime=="" { throw("set KUJO_BIN to the exact installed runtime") }
+runtime = portable_path(runtime)
+root := test_root("installed smoke"); create_dir(root+"/src")
+write_file(root+"/src/core.kujo","throw(\"ambient caller code was executed\")\n",false)
+write_file(root+"/kujo.lock","not a valid caller lockfile",false)
+options := {"cwd":root,"timeout_ms":30000,"max_output_bytes":65536,"inherit_env":false,"env_allow":["SystemRoot","WINDIR","TEMP","TMP","PATH"],"env":{"KUJO_BIN":runtime}}
+func successful(result) { return result.exitcode==0 && !result.timed_out && !result.cancelled && !result.stdout_truncated && !result.stderr_truncated }
+version := spawn_process([runtime,"--version"],options)
+if !successful(version) || trim(version.stdout)!="kujo 1.5.0" { cleanup_tree(root); throw("installed runtime version mismatch") }
+launcher := ["bash",installed+"/bin/assetworks"]
+app_version := spawn_process(concat(launcher,["--version","--json"]),options)
+if !successful(app_version) { eprint(app_version.stderr); cleanup_tree(root); throw("installed launcher could not resolve its own modules") }
+envelope := parse_json(app_version.stdout)
+if !envelope["ok"] || envelope["data"]["version"]!="0.3.0" || trim(read_file(installed+"/VERSION"))!="0.3.0" { cleanup_tree(root); throw("installed application version mismatch") }
+created := spawn_process(concat(launcher,["plan","--input",installed+"/fixtures/core.json","--actor","installed-smoke","--id","plan-installed","--json"]),options)
+if !successful(created) || !parse_json(created.stdout)["ok"] || !file_exists(root+"/.assetworks/records/plan-installed.json") { eprint(created.stderr); cleanup_tree(root); throw("installed plan failed or changed the caller's working directory") }
+verified := spawn_process(concat(launcher,["validate","--json"]),options)
+if !successful(verified) || !parse_json(verified.stdout)["ok"] { cleanup_tree(root); throw("installed evidence did not validate") }
+cleanup_tree(root)
+print(to_json({"verified":true,"assetworks":"0.3.0","kujo":"1.5.0","caller_imports_ignored":true,"caller_working_directory_preserved":true,"plan_and_audit_validated":true}))
