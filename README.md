@@ -21,6 +21,17 @@ See the [blocker follow-up and next-session opportunities](docs/REVIEW_FOLLOWUP_
 
 This development version requires Kujo 1.4.0 with confined filesystem primitives. CI pins source revision `4e987a4e10d4b45621805e5acb420de4c9824b90`; use that build for reproducibility rather than assuming every binary labeled 1.4.0 includes these preview APIs. Full-suite Linux/macOS/Windows verification is in progress.
 
+Build the pinned runtime in a separate checkout (Rust and the platform dependencies described in [Kujo's source-build guide](https://github.com/kujolang/kujo/blob/4e987a4e10d4b45621805e5acb420de4c9824b90/README.md#build-and-test-from-source) are required):
+
+```bash
+git clone https://github.com/kujolang/kujo.git assetworks-runtime
+git -C assetworks-runtime checkout 4e987a4e10d4b45621805e5acb420de4c9824b90
+cargo build --release --locked --manifest-path assetworks-runtime/Cargo.toml
+export KUJO_BIN="$PWD/assetworks-runtime/target/release/kujo"
+```
+
+On Windows the executable ends in `.exe`; [the CI workflow](.github/workflows/validate.yml) includes the OpenSSL setup and complete verification recipe.
+
 ```bash
 git clone https://github.com/kujolang/assetworks.git
 cd assetworks
