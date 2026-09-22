@@ -17,7 +17,7 @@ Optional [RSA public-key signatures or shared-key HMAC authentication](docs/AUTH
 
 [Sharded collections and migration](docs/STORAGE_LAYOUT.md) support larger local state without a mutable index. [Backup and restore](docs/BACKUP_RESTORE.md) preserve immutable signatures and referenced media across loss of the original volume.
 
-See the [blocker follow-up and next-session opportunities](docs/REVIEW_FOLLOWUP_2026-09-22.md), following the [September review](docs/REVIEW_2026-09-22.md). The [previous review](docs/PRODUCTION_READINESS_REVIEW.md) and [August checklist](docs/NEXT_SESSION.md) are historical.
+See the [round-two review and next-session worklist](docs/REVIEW_FOLLOWUP_2026-09-22_ROUND_2.md) and [implementation/release acceptance checklist](docs/NEXT_SESSION_IMPLEMENTATION.md). The [blocker follow-up](docs/REVIEW_FOLLOWUP_2026-09-22.md), [September review](docs/REVIEW_2026-09-22.md), [previous review](docs/PRODUCTION_READINESS_REVIEW.md) and [August checklist](docs/NEXT_SESSION.md) preserve earlier evidence.
 
 ## Quick install
 

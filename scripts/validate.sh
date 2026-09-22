@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-KUJO_RUNTIME="${KUJO_BIN:-$ROOT/../kujo/target/release/kujo}"
+KUJO_RUNTIME="${KUJO_BIN:-}"
+if [[ -z "$KUJO_RUNTIME" ]]; then KUJO_RUNTIME="$(command -v kujo || true)"; fi
 if [[ ! -x "$KUJO_RUNTIME" && -x "$KUJO_RUNTIME.exe" ]]; then KUJO_RUNTIME="$KUJO_RUNTIME.exe"; fi
-if [[ ! -x "$KUJO_RUNTIME" ]] && command -v kujo >/dev/null 2>&1; then KUJO_RUNTIME="$(command -v kujo)"; fi
 if [[ ! -x "$KUJO_RUNTIME" ]]; then printf 'assetworks: Kujo runtime not found; set KUJO_BIN.\n' >&2; exit 2; fi
 cd "$ROOT"
 "$KUJO_RUNTIME" check assetworks.kujo
