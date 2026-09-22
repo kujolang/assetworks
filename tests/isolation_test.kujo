@@ -1,0 +1,61 @@
+from src.validation import validate_record
+from src.profile import profile
+from src.core import dispatch
+from src.args import parse_args
+from src.adapters import load_adapter
+from src.isolation import start_container, stop_container, docker_call, isolated_exec, isolated_process_ok
+from tests.support import test_root, cleanup_tree
+mut passed := 0; mut failed := 0
+func check(ok,label) { if ok { passed=passed+1 } else { failed=failed+1; eprint("FAIL: "+label) } }
+func opts(values) { return parse_args(values,["json","force","dry-run"]) }
+root := test_root("isolation"); create_dir(root)
+config := {"schema_version":"1.0.0","provider_class":"ffmpeg","isolation":"container","docker_binary":path_absolute(env("DOCKER_BIN")),"docker_host":env("ASSETWORKS_DOCKER_HOST"),"image":env("ASSETWORKS_CONTAINER_IMAGE"),"offline":true,"timeout_ms":10000,"max_output_bytes":65536,"artifact_max_bytes":1048576}
+config_path := root+"/adapter.json"; write_file(config_path,to_json(config),false)
+loaded := load_adapter(config_path)
+check(loaded["ok"],"explicit immutable local container configuration")
+if !loaded["ok"] { eprint(to_json(loaded)); cleanup_tree(root); exit(1) }
+config=loaded["value"]
+context := start_container(config,root)
+inspection := docker_call(context,["inspect",context["name"]])
+settings := parse_json(inspection.stdout)[0]; host := settings["HostConfig"]
+check(host["NetworkMode"]=="none" && host["ReadonlyRootfs"] && host["PidsLimit"]==64 && host["Memory"]==268435456 && host["MemorySwap"]==268435456 && host["NanoCpus"]==1000000000,"daemon enforces network, memory, CPU, PID and rootfs restrictions")
+check(len(settings["Mounts"])==0,"no host directories or daemon socket mounted")
+user := isolated_exec(context,["id","-u"])
+check(isolated_process_ok(user) && trim(user.stdout)=="65532","codec runs as unprivileged UID")
+capabilities := isolated_exec(context,["cat","/proc/self/status"])
+check(contains(capabilities.stdout,"CapEff:\t0000000000000000")==1 && contains(capabilities.stdout,"NoNewPrivs:\t1")==1,"no effective capabilities or privilege escalation")
+readonly := isolated_exec(context,["touch","/outside-work"])
+check(readonly.exitcode!=0,"actual root filesystem write refused")
+write_file(root+"/host-sentinel","host-private-marker",false)
+read_host := isolated_exec(context,["cat",root+"/host-sentinel"])
+check(read_host.exitcode!=0 && contains(read_host.stdout,"host-private-marker")==0,"actual host sentinel read refused")
+network := isolated_exec(context,["/bin/bash","-c","echo blocked > /dev/tcp/172.17.0.1/9"])
+check(network.exitcode!=0 && !network.timed_out && contains(network.stderr,"Network is unreachable")==1,"actual network connection has no route")
+disk := isolated_exec(context,["/bin/sh","-c","head -c 33554432 /dev/zero > /work/too-large"])
+check(disk.exitcode!=0 && contains(disk.stderr,"No space left")==1,"tmpfs rejects output beyond its hard bound")
+isolated_exec(context,["rm","-f","/work/too-large"])
+// The resource allocation is confined to this one 256 MiB, no-swap container.
+memory := isolated_exec(context,["awk","BEGIN { s=\"xxxxxxxxxxxxxxxx\"; for(i=0;i<30;i++) s=s s; print length(s) }"])
+check(memory.exitcode!=0 && !memory.timed_out,"actual oversized allocation is refused or killed")
+stop_container(context)
+absent := docker_call(context,["inspect",context["name"]])
+check(absent.exitcode!=0,"owned container removed after boundary tests")
+// End-to-end decoding, encoding and probing all execute inside the boundary.
+payload_path := root+"/payload.json"
+write_file(payload_path,to_json({"schema_version":"1.0.0","source_id":"original","operation":"resize","adapter":"ffmpeg","input_format":"png","output_format":"webp","width":17,"height":13}),false)
+result := dispatch("resize",opts(["--state",root+"/state","--actor","isolation-test","--input",payload_path,"--path",path_absolute("fixtures/media/input.png"),"--adapter-config",config_path,"--id","transform-isolated"]))
+if !result["ok"] { eprint(to_json(result)) }
+check(result["ok"],"real isolated FFmpeg conversion")
+if result["ok"] {
+    record:=result["value"]["record"]
+    check(record["execution_receipt"]["isolation"]=="container" && record["execution_receipt"]["image"]==config["image"],"receipt records immutable isolation identity")
+    check(dispatch("validate",opts(["--state",root+"/state"]))["ok"],"isolated output independently validates")
+    receipt := record["execution_receipt"]; receipt["network"]="host"; record["execution_receipt"]=receipt
+    check(!validate_record(record,profile(),"","")["ok"],"invalid boundary receipt cannot validate")
+}
+for bad in ["ubuntu:latest","sha256:bad"] { changed:=config; changed["image"]=bad; write_file(config_path,to_json(changed),true); check(!load_adapter(config_path)["ok"],"mutable/invalid image refused") }
+changed:=config; changed["docker_host"]="tcp://localhost:2375"; write_file(config_path,to_json(changed),true)
+check(!load_adapter(config_path)["ok"],"remote daemon configuration refused")
+cleanup_tree(root)
+print(to_string(passed)+" passed; "+to_string(failed)+" failed")
+if failed>0 { exit(1) }

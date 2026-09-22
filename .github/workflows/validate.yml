@@ -102,3 +102,12 @@ jobs:
             bash scripts/scale_benchmark.sh "$count"
           done
           .runtime/kujo/target/release/kujo run scripts/sharding_benchmark.kujo -- 100001
+      - name: Verify real container isolation
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          docker build -f containers/Dockerfile -t assetworks-ci:local .
+          export DOCKER_BIN="$(command -v docker)"
+          export ASSETWORKS_DOCKER_HOST=unix:///var/run/docker.sock
+          export ASSETWORKS_CONTAINER_IMAGE="$(docker image inspect assetworks-ci:local --format '{{.Id}}')"
+          .runtime/kujo/target/release/kujo run tests/isolation_test.kujo

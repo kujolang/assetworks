@@ -1,0 +1,74 @@
+from src.common import get
+from src.filesystem import is_link, confined_path, confined_write
+
+func options(config) { return {"timeout_ms":config["timeout_ms"],"max_output_bytes":config["max_output_bytes"],"inherit_env":false,"env_allow":["SystemRoot","WINDIR","TEMP","TMP"]} }
+export func isolated_process_ok(result) { return result.exitcode==0 && !result.timed_out && !result.cancelled && !result.stdout_truncated && !result.stderr_truncated }
+export func isolation_config_error(config) {
+    binary := get(config,"docker_binary",""); host := get(config,"docker_host",""); image := get(config,"image","")
+    if type(binary)!="string" || (!starts_with(binary,"/") && !regex_match(binary,"^[A-Za-z]:[/\\\\]")) || !path_is_file(binary) || is_link(binary) { return "docker_binary must be an explicit absolute regular executable" }
+    if type(host)!="string" || (!starts_with(host,"unix:///") && !starts_with(host,"npipe:////./pipe/")) || regex_match(host,"[\\x00-\\x20]") { return "docker_host must explicitly name a local Unix socket or Windows named pipe" }
+    if type(image)!="string" || !regex_match(image,"^sha256:[a-f0-9]{64}$") { return "image must be an immutable local sha256 image ID" }
+    return ""
+}
+export func docker_call(context, arguments) { return spawn_process(concat(context["argv"],arguments),options(context["config"])) }
+export func stop_container(context) {
+    mut removed := false
+    try { removed = isolated_process_ok(docker_call(context,["rm","--force",context["name"]])) } except error {}
+    // Docker receives an empty private config directory, never ambient credentials.
+    try { os_rmdir(context["config_dir"]) } except error {}
+    return removed
+}
+export func start_container(config, directory) {
+    problem := isolation_config_error(config); if problem!="" { throw(problem) }
+    private_config := create_temp_dir(directory,".docker-config-")
+    context := {"config":config,"config_dir":private_config,"name":"assetworks-"+uuid_v4(),"argv":[config["docker_binary"],"--config",private_config,"--host",config["docker_host"]]}
+    try {
+        inspect := docker_call(context,["image","inspect",config["image"],"--format","{{.Id}}"])
+        if !isolated_process_ok(inspect) || trim(inspect.stdout)!=config["image"] { throw("configured local image unavailable") }
+        create := docker_call(context,["create","--pull","never","--name",context["name"],"--label","org.kujolang.assetworks.isolated=true","--network","none","--read-only","--cap-drop","ALL","--security-opt","no-new-privileges=true","--user","65532:65532","--memory","256m","--memory-swap","256m","--cpus","1","--pids-limit","64","--ulimit","nofile=128:128","--ulimit","core=0:0","--log-driver","none","--tmpfs","/work:rw,noexec,nosuid,nodev,size=16777216,mode=1777","--tmpfs","/tmp:rw,noexec,nosuid,nodev,size=8388608,mode=1777","--entrypoint","/bin/sleep",config["image"],"300"])
+        if !isolated_process_ok(create) { throw("container creation failed") }
+        started := docker_call(context,["start",context["name"]]); if !isolated_process_ok(started) { throw("container start failed") }
+        return context
+    } except error { stop_container(context); throw("isolated runtime unavailable: "+to_string(error)) }
+}
+export func isolated_exec(context, arguments) { return docker_call(context,concat(["exec",context["name"]],arguments)) }
+func container_argv(arguments, source_path, output_path, source_name, output_name) {
+    result := []
+    for value in arguments {
+        if value==source_path { value="/work/"+source_name }
+        if value==output_path { value="/work/"+output_name }
+        result=push(result,value)
+    }
+    return result
+}
+export func execute_isolated(config, directory, source_path, output_path, source_name, output_name, argv, probe_args) {
+    mut context := null
+    try {
+        context = start_container(config,directory)
+        source := confined_path(source_path)
+        upload_options := options(config)
+        upload_options["stdin"] = read_binary_file_beneath(source["root"],source["relative"],8388608)
+        uploaded := spawn_process(concat(context["argv"],["exec","-i",context["name"],"/usr/bin/dd","of=/work/"+source_name,"bs=65536","status=none"]),upload_options)
+        upload_options = null
+        if !isolated_process_ok(uploaded) { throw("isolated input transfer failed") }
+        process := isolated_exec(context,container_argv(argv,source_path,output_path,source_name,output_name))
+        if !isolated_process_ok(process) { stop_container(context); return {"ok":false,"code":"adapter_failed","error":"isolated adapter failed or exceeded bounds","value":{"timed_out":process.timed_out}} }
+        probe := isolated_exec(context,container_argv(probe_args,source_path,output_path,source_name,output_name))
+        if !isolated_process_ok(probe) { stop_container(context); return {"ok":false,"code":"adapter_probe","error":"isolated probe failed or exceeded bounds","value":{"timed_out":probe.timed_out}} }
+        // Read-only Docker roots cannot use archive copy reliably across daemons.
+        // Transfer bounded base64 through stdout instead; never extract an archive
+        // supplied by the codec image onto the host filesystem.
+        download_options := options(config)
+        download_options["max_output_bytes"] = to_int((config["artifact_max_bytes"]+2)/3)*4+4
+        downloaded := spawn_process(concat(context["argv"],["exec",context["name"],"/usr/bin/base64","-w0","/work/"+output_name]),download_options)
+        if !isolated_process_ok(downloaded) { throw("isolated output transfer failed or exceeded its bound") }
+        output_bytes := decode_base64(downloaded.stdout)
+        if len(output_bytes)>config["artifact_max_bytes"] { throw("isolated output exceeds artifact bound") }
+        confined_write(output_path,output_bytes,false)
+        if !stop_container(context) { return {"ok":false,"code":"adapter_cleanup","error":"container removal failed; inspect owned container "+context["name"]} }
+        return {"ok":true,"process":process,"probe":probe}
+    } except error {
+        if type(context)=="dict" { stop_container(context) }
+        return {"ok":false,"code":"adapter_isolation","error":"isolated execution failed: "+to_string(error)}
+    }
+}

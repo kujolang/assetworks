@@ -1,3 +1,4 @@
+from src.isolation import isolation_config_error, execute_isolated
 from src.common import get, has, parse_object, bounded_int
 from src.filesystem import confined_path, confined_read, confined_write, ensure_managed_dir, is_link
 
@@ -17,16 +18,23 @@ export func load_adapter(path) {
     parsed := parse_object(text, "adapter configuration"); if !parsed["ok"] { return parsed }
     config := parsed["value"]
     for key in keys(config) {
-        if !has(["schema_version", "provider_class", "binary", "probe_binary", "offline", "timeout_ms", "max_output_bytes", "artifact_max_bytes"], key) { return adapter_error("adapter_config", "unknown adapter option: " + key) }
+        if !has(["schema_version", "provider_class", "binary", "probe_binary", "offline", "timeout_ms", "max_output_bytes", "artifact_max_bytes", "isolation", "docker_binary", "docker_host", "image"], key) { return adapter_error("adapter_config", "unknown adapter option: " + key) }
     }
     if get(config, "schema_version", "") != "1.0.0" || get(config, "provider_class", "") != "ffmpeg" || get(config, "offline", false) != true { return adapter_error("adapter_config", "adapter must declare schema 1.0.0, ffmpeg and offline=true") }
+    isolation := get(config,"isolation","local")
+    if isolation!="local" && isolation!="container" { return adapter_error("adapter_config","isolation must be local or container") }
+    config["isolation"] = isolation
+    if isolation=="container" {
+        problem := isolation_config_error(config); if problem!="" { return adapter_error("adapter_config",problem) }
+        config["binary"]="/usr/bin/ffmpeg"; config["probe_binary"]="/usr/bin/ffprobe"
+    }
     for key in ["binary", "probe_binary"] {
         executable := get(config, key, null)
         if type(executable) == "string" {
             executable = process_path(executable)
             config[key] = executable
         }
-        if type(executable) != "string" || (!starts_with(executable, "/") && !regex_match(executable, "^[A-Za-z]:[/\\\\]")) || !path_is_file(executable) || is_link(executable) { return adapter_error("adapter_config", key + " must name an explicit absolute regular non-symlink executable") }
+        if type(executable) != "string" || (!starts_with(executable, "/") && !regex_match(executable, "^[A-Za-z]:[/\\\\]")) || (isolation=="local" && (!path_is_file(executable) || is_link(executable))) { return adapter_error("adapter_config", key + " must name an explicit absolute regular non-symlink executable") }
     }
     for bound in [{"name":"timeout_ms","default":30000,"max":300000}, {"name":"max_output_bytes","default":65536,"max":1048576}, {"name":"artifact_max_bytes","default":8388608,"max":8388608}] {
         value := get(config, bound["name"], bound["default"])
@@ -84,22 +92,27 @@ export func execute_transform(command, payload, source_path, state, config, dry_
     if output_format == "mp4" { argv = concat(argv, ["-c:v", "mpeg4", "-c:a", "aac", "-f", "mp4"]) }
     output_path := process_path(path_absolute(directory)) + "/" + output_name
     argv = concat(argv, ["-fs", to_string(config["artifact_max_bytes"]), "-n", output_path])
-    mut process := null
-    try { process = spawn_process(argv, process_options(config)) }
-    except error { discard_stage(directory, stage_files); return adapter_error("adapter_failed", "adapter could not be started") }
-    if !process_ok(process) {
-        failure := adapter_error("adapter_failed", "adapter failed, timed out, was cancelled or exceeded its log bound")
-        failure["value"] = {"timed_out": process.timed_out}
-        discard_stage(directory, stage_files); return failure
-    }
     probe_args := [config["probe_binary"], "-v", "error", "-protocol_whitelist", "file,pipe", "-show_streams", "-show_format", "-of", "json", output_path]
-    mut probe_process := null
-    try { probe_process = spawn_process(probe_args, process_options(config)) }
-    except error { discard_stage(directory, stage_files); return adapter_error("adapter_probe", "probe could not be started") }
-    if !process_ok(probe_process) {
-        failure := adapter_error("adapter_probe", "generated artifact could not be probed within bounds")
-        failure["value"] = {"timed_out": probe_process.timed_out}
-        discard_stage(directory, stage_files); return failure
+    mut process := null; mut probe_process := null
+    if get(config,"isolation","local")=="container" {
+        isolated := execute_isolated(config,directory,process_path(path_absolute(directory+"/"+source_name)),output_path,source_name,output_name,argv,probe_args)
+        if !isolated["ok"] { discard_stage(directory,stage_files); return isolated }
+        process=isolated["process"]; probe_process=isolated["probe"]
+    } else {
+        try { process = spawn_process(argv, process_options(config)) }
+        except error { discard_stage(directory, stage_files); return adapter_error("adapter_failed", "adapter could not be started") }
+        if !process_ok(process) {
+            failure := adapter_error("adapter_failed", "adapter failed, timed out, was cancelled or exceeded its log bound")
+            failure["value"] = {"timed_out": process.timed_out}
+            discard_stage(directory, stage_files); return failure
+        }
+        try { probe_process = spawn_process(probe_args, process_options(config)) }
+        except error { discard_stage(directory, stage_files); return adapter_error("adapter_probe", "probe could not be started") }
+        if !process_ok(probe_process) {
+            failure := adapter_error("adapter_probe", "generated artifact could not be probed within bounds")
+            failure["value"] = {"timed_out": probe_process.timed_out}
+            discard_stage(directory, stage_files); return failure
+        }
     }
     probe := parse_object(probe_process.stdout, "media probe")
     if !probe["ok"] || type(get(get(probe, "value", {}), "streams", null)) != "array" || len(get(get(probe, "value", {}), "streams", [])) == 0 { discard_stage(directory, stage_files); return adapter_error("adapter_probe", "generated artifact has no valid streams") }
@@ -123,6 +136,10 @@ export func execute_transform(command, payload, source_path, state, config, dry_
         if !identical { discard_stage(directory, stage_files); return adapter_error("adapter_output", "artifact publication conflict") }
     }
     result := {"ok": true, "value": {"artifact": {"path": path_absolute(artifact_path), "sha256": digest, "bytes": len(output_bytes)}, "receipt": {"execution": "completed", "provider_class": "ffmpeg", "binary": config["binary"], "probe_binary": config["probe_binary"], "source_sha256": source_checksum, "input_format": input_format, "output_format": output_format, "offline_protocols": ["file", "pipe"], "streams": streams}}}
+    receipt := result["value"]["receipt"]
+    receipt["isolation"] = get(config,"isolation","local")
+    if receipt["isolation"]=="container" { receipt["image"]=config["image"]; receipt["network"]="none"; receipt["memory_bytes"]=268435456; receipt["pids_limit"]=64 }
+    value := result["value"]; value["receipt"]=receipt; result["value"]=value
     discard_stage(directory, stage_files)
     return result
 }

@@ -9,7 +9,7 @@ AssetWorks is a local-first Kujo tool for media asset planning, immutable proven
 
 ## What works today
 
-Plan media work, record transformation intents, bind files to manifests and accessibility records, inspect and export local records, and validate attached file checksums. Core commands run offline in Kujo, with no required hosted service or model credentials. Transform commands record a planned intent by default. With an explicit [FFmpeg adapter configuration](docs/ADAPTERS.md), they execute bounded offline conversions, probe the generated artifact and record a completed receipt.
+Plan media work, record transformation intents, bind files to manifests and accessibility records, inspect and export local records, and validate attached file checksums. Core commands run offline in Kujo, with no required hosted service or model credentials. Transform commands record a planned intent by default. With an explicit [FFmpeg adapter configuration](docs/ADAPTERS.md), they execute bounded offline conversions, probe the generated artifact and record a completed receipt. Optional [container isolation](docs/ISOLATION.md) confines codecs and probes with no network or host mounts.
 
 Records have stable IDs, actors, timestamps and append-only creation events. Storage uses immutable transaction journals and atomic no-replace writes. Validation reconciles exact record bytes with their creation events and detects orphan events. [Recovery](docs/RECOVERY.md) replays interrupted transactions without overwriting existing evidence. This remains an operator-controlled local tool, not a hosted multi-tenant service.
 

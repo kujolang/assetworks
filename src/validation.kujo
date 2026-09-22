@@ -26,6 +26,10 @@ export func validate_record(record, p, verification_key, artifact_root) {
         if has_key(receipt,"source_sha256") == 1 && (type(receipt["source_sha256"]) != "string" || !regex_match(receipt["source_sha256"],"^[a-f0-9]{64}$")) { return {"ok":false,"code":"invalid_record","error":"invalid receipt source digest"} }
         if receipt["execution"] == "completed" && (get(receipt, "provider_class", "") != "ffmpeg" || type(get(receipt, "source_sha256", null)) != "string" || !regex_match(get(receipt, "source_sha256", ""), "^[a-f0-9]{64}$") || type(get(record, "artifact", null)) != "dict") { return {"ok": false, "code": "invalid_record", "error": "completed transform requires source digest and generated artifact"} }
     }
+    if type(receipt)=="dict" && has_key(receipt,"isolation")==1 {
+        if !has(["local","container"],receipt["isolation"]) { return {"ok":false,"code":"invalid_record","error":"unknown execution isolation"} }
+        if receipt["isolation"]=="container" && (type(get(receipt,"image",null))!="string" || !regex_match(get(receipt,"image",""),"^sha256:[a-f0-9]{64}$") || get(receipt,"network","")!="none" || get(receipt,"memory_bytes",0)!=268435456 || get(receipt,"pids_limit",0)!=64) { return {"ok":false,"code":"invalid_record","error":"invalid container execution boundary receipt"} }
+    }
     artifact := get(record, "artifact", null)
     if has_key(record,"artifact") == 1 && type(artifact) != "dict" { return {"ok": false, "code": "invalid_record", "error": "artifact must be an object"} }
     if type(artifact) == "dict" {
