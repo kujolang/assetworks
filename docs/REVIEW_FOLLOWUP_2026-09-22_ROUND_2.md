@@ -6,11 +6,11 @@ AssetWorks is an operator-controlled local tool with explicit limits. Passing it
 
 | Area | Implementation | Acceptance evidence |
 | --- | --- | --- |
-| Media | PNG, JPEG, WebP, WAV, FLAC and MP4; original CC0 fixtures; codec and round-trip checks | Format/signature matrix 35776897250 passed on Linux, macOS and Windows at dcf8282 |
-| Authenticity | RSA public trust stores; active/retired/revoked rotation; domain-separated identity binding; HMAC compatibility | Local public-key suite plus signed restore/revocation checks |
-| Large state | Explicit 256-shard collections, bounded pages, out-of-place exact-byte migration/rebuild | 46 local assertions; 100,001-entry measurement pending completion |
-| Disaster recovery | Hash-linked bounded inventory, externally retained root receipt, streaming media copies, private staging and no-replace restore | 15 local volume-loss/tamper assertions and four public-signature backup/restore assertions |
-| Codec isolation | Explicit immutable local image, no network or host mounts, unprivileged execution, read-only root and resource limits | Real local Docker boundary tests; final hosted verification pending |
+| Media | PNG, JPEG, WebP, WAV, FLAC and MP4; original CC0 fixtures; codec and round-trip checks | Full 300-assertion matrix 35785986508 passed on Linux, macOS and Windows at 150057d |
+| Authenticity | RSA public trust stores; active/retired/revoked rotation; domain-separated identity binding; HMAC compatibility | Public-key suite plus signed restore/revocation checks passed in all three platform jobs of run 35785986508 |
+| Large state | Explicit 256-shard collections, bounded pages, out-of-place exact-byte migration/rebuild | 46 assertions; optimized 100,001-entry migration and exact-byte traversal passed in Linux run 35783043092; [phase measurements](STORAGE_LAYOUT.md#measured-example) |
+| Disaster recovery | Hash-linked bounded inventory, externally retained root receipt, streaming media copies, private staging and no-replace restore | 15 volume-loss/tamper assertions and four public-signature backup/restore assertions passed on all three platforms |
+| Codec isolation | Explicit immutable local image, no network or host mounts, unprivileged execution, read-only root and resource limits | 21 real Docker checks passed locally and in Linux run 35783043092 |
 | Distribution | AssetWorks 0.3.0 and Kujo 1.5.0 candidate metadata | Tagged publication and installed-artifact evidence pending |
 
 Use [the acceptance checklist](NEXT_SESSION_IMPLEMENTATION.md) for current release status. These pending cells must be replaced with final evidence before declaring all six implementation items complete.
