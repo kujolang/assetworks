@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.3.0 - 2026-09-22
+
+- Added explicit RSA public-key verification with active/retired/revoked key rotation and downgrade protection, while retaining HMAC and older immutable record compatibility.
+- Expanded real media conversion to PNG, JPEG, WebP, WAV, FLAC and MP4 with original CC0 fixtures and codec/round-trip checks.
+- Added opt-in local container isolation for decoding, encoding and probing with no network or host mounts, fixed resource limits and fail-closed execution.
+- Added explicit 256-shard storage, bounded pagination, exact-byte legacy migration and rebuild without a mutable index.
+- Added verified backups and atomic no-replace restore after complete volume loss, preserving signed records and content-addressed media up to 4 GiB per artifact.
+- Added confined streaming checksums, bounded directory scans, immutable transaction journals, crash recovery, exact audit reconciliation and aggregate page budgets.
+- Documented operating boundaries, trust policies, installation, storage and disaster-recovery procedures. Release verification remains pending until the acceptance checklist is complete.
+
 - Made dry runs side-effect free and rejected impossible calendar dates and missing CLI values.
 - Fixed JSON version output, portable launcher resolution, and incomplete-validation reporting.
 - Rejected existing symlinked state/export ancestors and reduced repeated directory checks during listing.
