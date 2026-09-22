@@ -36,7 +36,7 @@ delete_file(root + "/history/.json")
 delete_file(path)
 check(!dispatch("validate", opts(["--state", root]))["ok"], "orphan event rejected independently of record listing")
 write_file(path, original, true)
-history := dispatch("history", opts(["--state", root, "--limit", "1"]))
+history := dispatch("history", opts(["--state", root, "--limit", "2"]))
 check(history["ok"] && history["value"]["events"][0]["event"]["event"] == "record.created", "history exposes events")
 cursor := history["value"]["events"][0]["id"]
 check(len(dispatch("history", opts(["--state", root, "--after", cursor]))["value"]["events"]) == 0, "history event cursor works")

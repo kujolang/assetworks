@@ -39,3 +39,36 @@ export func ensure_managed_dir(path) {
     }
     return ""
 }
+
+export func confined_digest(path, maximum) {
+    target := confined_path(path)
+    return sha256_file_beneath(target["root"], target["relative"], maximum)
+}
+
+// Opaque filename cursors also advance past malformed JSON names and marker files.
+export func safe_page_cursor(cursor) {
+    if type(cursor) != "string" || len(cursor) > 1024 { return false }
+    if cursor == "" { return true }
+    if starts_with(cursor,"file:") { return !regex_match(substring(cursor,5,len(cursor)), "[/\\\\\\x00]") && len(cursor)>5 }
+    return regex_match(cursor,"^[a-z0-9][a-z0-9-]{1,127}$")
+}
+export func directory_page(directory, after, limit) {
+    if !safe_page_cursor(after) { return {"ok":false,"error":"invalid page cursor"} }
+    target := confined_path(directory)
+    // Missing state is empty only when no existing ancestor is a symlink.
+    current := target["root"]
+    for component in split(target["relative"],"/") {
+        if !ends_with(current,"/") { current = current + "/" }
+        current = current + component
+        if is_link(current) { return {"ok":false,"error":"directory path has a symlink component"} }
+    }
+    if !file_exists(directory) { return {"ok":true,"names":[],"truncated":false,"scanned":0} }
+    cursor := after
+    if starts_with(cursor,"file:") { cursor = substring(cursor,5,len(cursor)) }
+    else if cursor != "" { cursor = cursor + ".json" }
+    try {
+        page := list_dir_beneath(target["root"],target["relative"],cursor,"",limit,100000)
+        page["ok"] = true
+        return page
+    } except error { return {"ok":false,"error":"directory is unsafe, unreadable or exceeds 100000 entries"} }
+}

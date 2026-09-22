@@ -17,7 +17,7 @@ export func make_link(target, link, directory) {
     if env("OS") == "Windows_NT" {
         command := ["cmd.exe", "/c", "mklink"]
         if directory { command = push(command, "/D") }
-        command = concat(command, [link, target])
+        command = concat(command, [replace_str(link,"/","\\"), replace_str(target,"/","\\")])
         return spawn_process(command, {"timeout_ms": 5000, "max_output_bytes": 4096})
     }
     return spawn_process(["ln", "-s", target, link], {"timeout_ms": 5000, "max_output_bytes": 4096})

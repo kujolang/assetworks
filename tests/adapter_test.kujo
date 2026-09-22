@@ -1,0 +1,45 @@
+from src.core import dispatch
+from src.args import parse_args
+from src.adapters import load_adapter
+from tests.support import test_root, cleanup_tree
+mut passed := 0; mut failed := 0
+func check(ok, label) { if ok { passed = passed + 1 } else { failed = failed + 1; eprint("FAIL: " + label) } }
+func opts(values) { return parse_args(values, ["json", "dry-run", "force"]) }
+ffmpeg := env("FFMPEG_BIN"); ffprobe := env("FFPROBE_BIN")
+if type(ffmpeg) != "string" || ffmpeg == "" || type(ffprobe) != "string" || ffprobe == "" { eprint("adapter tests require explicit FFMPEG_BIN and FFPROBE_BIN"); exit(1) }
+root := test_root("adapters"); config_path := root + "-config.json"; payload_path := root + "-input.json"
+config := {"schema_version":"1.0.0","provider_class":"ffmpeg","binary":path_absolute(ffmpeg),"probe_binary":path_absolute(ffprobe),"offline":true,"timeout_ms":10000,"max_output_bytes":65536,"artifact_max_bytes":1048576}
+write_file(config_path, to_json(config), true)
+payload := {"schema_version":"1.0.0","source_id":"fixture-blue","operation":"resize","adapter":"ffmpeg","input_format":"png","output_format":"png","width":16,"height":12}
+write_file(payload_path, to_json(payload), true)
+flags := ["--state",root,"--input",payload_path,"--actor","adapter-test","--path",path_absolute("fixtures/media/input.png"),"--adapter-config",config_path,"--id","transform-resized"]
+preview := dispatch("resize", opts(concat(flags, ["--dry-run"])))
+check(preview["ok"] && !file_exists(root), "adapter dry run creates no files or processes")
+resized := dispatch("resize", opts(flags))
+check(resized["ok"], "real ffmpeg resize succeeds")
+if resized["ok"] {
+    record := resized["value"]["record"]
+    check(record["execution_receipt"]["execution"] == "completed" && record["execution_receipt"]["streams"][0]["width"] == 16 && record["execution_receipt"]["streams"][0]["height"] == 12, "receipt proves requested dimensions")
+    check(sha256_file(record["artifact"]["path"]) == record["artifact"]["sha256"], "generated artifact checksum matches receipt")
+    check(!dispatch("resize", opts(flags))["ok"], "duplicate executed record rejected")
+}
+payload["input_format"] = "wav"; payload["output_format"] = "wav"; payload["operation"] = "convert"
+write_file(payload_path, to_json(payload), true)
+converted := dispatch("convert", opts(["--state",root,"--input",payload_path,"--actor","adapter-test","--path",path_absolute("fixtures/media/input.wav"),"--adapter-config",config_path,"--id","transform-audio"]))
+check(converted["ok"], "real ffmpeg audio conversion succeeds")
+payload["input_format"] = "png"; payload["output_format"] = "mp4"; payload["operation"] = "render"
+write_file(payload_path, to_json(payload), true)
+rendered := dispatch("render", opts(["--state",root,"--input",payload_path,"--actor","adapter-test","--path",path_absolute("fixtures/media/input.png"),"--adapter-config",config_path,"--id","transform-video"]))
+check(rendered["ok"], "real ffmpeg video rendering succeeds")
+check(dispatch("validate", opts(["--state",root]))["ok"], "executed records and audit events validate")
+payload["input_format"] = "https"; write_file(payload_path, to_json(payload), true)
+check(!dispatch("render", opts(["--state",root,"--input",payload_path,"--actor","adapter-test","--path",path_absolute("fixtures/media/input.png"),"--adapter-config",config_path]))["ok"], "network input formats are not accepted")
+config["offline"] = false; write_file(config_path, to_json(config), true)
+check(!load_adapter(config_path)["ok"], "online adapter declaration rejected")
+config["offline"] = true; config["timeout_ms"] = 1; write_file(config_path, to_json(config), true)
+payload["input_format"] = "png"; payload["output_format"] = "png"; write_file(payload_path, to_json(payload), true)
+check(!dispatch("resize", opts(["--state",root,"--input",payload_path,"--actor","adapter-test","--path",path_absolute("fixtures/media/input.png"),"--adapter-config",config_path,"--id","transform-timeout"]))["ok"], "adapter process timeout fails without successful receipt")
+check(!file_exists(root + "/records/transform-timeout.json"), "failed adapter creates no record")
+cleanup_tree(root); cleanup_tree(config_path); cleanup_tree(payload_path)
+print(to_string(passed) + " passed; " + to_string(failed) + " failed")
+if failed > 0 { exit(1) }

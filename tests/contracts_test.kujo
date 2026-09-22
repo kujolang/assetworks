@@ -26,6 +26,14 @@ record := created["value"]["record"]; record["id"] = "plan-read-command"; record
 check(save_new(root, record)["ok"] && !dispatch("validate", opts(["--state", root, "--id", record["id"]]))["ok"], "persisted read command is not a record")
 record = created["value"]["record"]; record["id"] = "plan-invalid-artifact"; record["artifact"] = 2
 check(save_new(root, record)["ok"] && !dispatch("validate", opts(["--state", root, "--id", record["id"]]))["ok"], "persisted artifact must be object")
+for malformed in [{"bytes":-1,"sha256":repeat("a",64),"path":"missing"},{"bytes":1,"sha256":"bad","path":"missing"},{"bytes":1,"sha256":repeat("a",64),"path":"missing","maximum_bytes":"100"}] {
+    record = created["value"]["record"]; record["id"] = "plan-malformed-" + to_string(passed); record["artifact"] = malformed
+    check(save_new(root,record)["ok"] && !dispatch("validate",opts(["--state",root,"--id",record["id"]]))["ok"],"persisted artifact shape rejected")
+}
+record = created["value"]["record"]; record["id"] = "plan-bad-receipt"; record["execution_receipt"] = {"execution":"completed"}
+check(save_new(root,record)["ok"] && !dispatch("validate",opts(["--state",root,"--id",record["id"]]))["ok"],"receipt on non-transform rejected")
+record = created["value"]["record"]; record["id"] = "plan-bad-payload"; record["payload"] = []
+check(save_new(root,record)["ok"] && !dispatch("validate",opts(["--state",root,"--id",record["id"]]))["ok"],"persisted payload requires an object")
 cleanup_tree(root); delete_file(config)
 print(to_string(passed) + " passed; " + to_string(failed) + " failed")
 if failed > 0 { exit(1) }

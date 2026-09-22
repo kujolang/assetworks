@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AssetWorks offline adapter",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "provider_class",
+    "binary",
+    "probe_binary",
+    "offline"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "provider_class": {
+      "const": "ffmpeg"
+    },
+    "binary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "probe_binary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "offline": {
+      "const": true
+    },
+    "timeout_ms": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 300000
+    },
+    "max_output_bytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1048576
+    },
+    "artifact_max_bytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 8388608
+    }
+  },
+  "additionalProperties": false
+}

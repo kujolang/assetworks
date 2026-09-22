@@ -1,4 +1,4 @@
-from src.filesystem import confined_read
+from src.filesystem import confined_read, directory_page
 from src.common import get, safe_id, valid_timestamp, parse_object
 from src.storage import history_dir, load_record, validate_state_path
 
@@ -25,7 +25,7 @@ export func load_event(state, id) {
     if type(event_checksum) != "string" || !regex_match(event_checksum, "^[a-f0-9]{64}$") { return failure("invalid_event", "audit checksum is invalid") }
     expected := substring(sha256(event["at"] + "\n" + event["record_id"]), 0, 32)
     if expected != id { return failure("event_id_mismatch", "audit event does not match its filename") }
-    return {"ok": true, "value": event}
+    return {"ok": true, "value": event, "read_bytes": len(event_contents)}
 }
 
 func compare_event(event, record, checksum) {
@@ -41,29 +41,26 @@ export func reconcile_record(state, record, checksum) {
 }
 
 export func list_history(state, after, limit, reconcile) {
-    mut events := []; mut warnings := []; mut truncated := false; mut scanned := 0; mut next_after := after
-    dir := history_dir(state); problem := validate_state_path(dir)
-    if problem != "" { return {"events": [], "warnings": [{"id": "", "code": "unsafe_state", "error": problem}], "truncated": false, "next_after": after} }
-    if !path_is_dir(dir) { return {"events": [], "warnings": [], "truncated": false, "next_after": after} }
-    for name in sort(list_dir(dir)) {
-        if ends_with(name, ".json") {
-            id := substring(name, 0, len(name) - 5)
-            if after == "" || id > after {
-                if scanned >= limit { truncated = true; break }
-                scanned = scanned + 1; next_after = id
-                loaded := load_event(state, id)
-                if loaded["ok"] {
-                    event := loaded["value"]
-                    events = push(events, {"id": id, "event": event})
-                    if reconcile {
-                        record := load_record(state, event["record_id"])
-                        if !record["ok"] { loaded = failure("orphan_event", "event has no readable record") }
-                        else { loaded = compare_event(event, record["value"], record["checksum"]) }
-                    }
+    mut events := []; mut warnings := []; mut next_after := after; mut read_bytes := 0
+    page := directory_page(history_dir(state),after,limit)
+    if !page["ok"] { return {"events":[],"warnings":[{"id":"","code":"unsafe_state","error":page["error"]}],"truncated":true,"next_after":after} }
+    truncated := page["truncated"]
+    for name in page["names"] {
+        if read_bytes + 1081344 > 8388608 { truncated = true; break }
+        next_after = "file:" + name
+        if ends_with(name,".json") {
+            id := substring(name,0,len(name)-5)
+            loaded := load_event(state,id); read_bytes = read_bytes + get(loaded,"read_bytes",32768)
+            if loaded["ok"] {
+                event := loaded["value"]; events = push(events,{"id":id,"event":event})
+                if reconcile {
+                    record := load_record(state,event["record_id"]); read_bytes = read_bytes + get(record,"read_bytes",1048576)
+                    if !record["ok"] { loaded = failure("orphan_event","event has no readable record") }
+                    else { loaded = compare_event(event,record["value"],record["checksum"]) }
                 }
-                if !loaded["ok"] { warnings = push(warnings, {"id": id, "code": loaded["code"], "error": loaded["error"]}) }
             }
+            if !loaded["ok"] { warnings = push(warnings,{"id":id,"code":loaded["code"],"error":loaded["error"]}) }
         }
     }
-    return {"events": events, "warnings": warnings, "truncated": truncated, "next_after": next_after}
+    return {"events":events,"warnings":warnings,"truncated":truncated,"next_after":next_after,"read_bytes":read_bytes}
 }

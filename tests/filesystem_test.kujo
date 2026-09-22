@@ -26,7 +26,7 @@ if linked.exitcode == 0 {
     check(refuses_write(root + "/nested/secret.txt"), "renamed ancestor replacement cannot redirect write")
     check(refuses_read(root + "/nested/secret.txt"), "renamed ancestor replacement cannot redirect read")
     check(read_file(outside + "/secret.txt") == "outside", "replacement leaves outside file intact")
-} else { eprint("symlink fixtures unavailable on this host"); exit(1) }
+} else { eprint("symlink fixtures unavailable on this host: " + linked.stderr + linked.stdout); exit(1) }
 cleanup_tree(root); cleanup_tree(outside)
 print(to_string(passed) + " passed; " + to_string(failed) + " failed")
 if failed > 0 { exit(1) }

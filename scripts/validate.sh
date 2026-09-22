@@ -15,9 +15,19 @@ cd "$ROOT"
 "$KUJO_RUNTIME" run tests/review_test.kujo
 "$KUJO_RUNTIME" run tests/integrity_test.kujo
 "$KUJO_RUNTIME" run tests/contracts_test.kujo
+"$KUJO_RUNTIME" run tests/authentication_test.kujo
+"$KUJO_RUNTIME" run tests/streaming_test.kujo
+"$KUJO_RUNTIME" run tests/pagination_test.kujo
 "$KUJO_RUNTIME" run tests/filesystem_test.kujo
 KUJO_BIN="$KUJO_RUNTIME" "$KUJO_RUNTIME" run tests/recovery_test.kujo
 KUJO_BIN="$KUJO_RUNTIME" bash scripts/contention_benchmark.sh
+if [[ -n "${FFMPEG_BIN:-}" && -n "${FFPROBE_BIN:-}" ]]; then
+  "$KUJO_RUNTIME" run tests/adapter_test.kujo
+elif [[ "${ASSETWORKS_REQUIRE_ADAPTER_TESTS:-0}" == 1 ]]; then
+  printf 'adapter verification requires FFMPEG_BIN and FFPROBE_BIN.\n' >&2; exit 1
+else
+  printf 'Adapter tests not requested; set explicit FFMPEG_BIN and FFPROBE_BIN to verify execution.\n'
+fi
 while IFS= read -r document; do "$KUJO_RUNTIME" run scripts/validate_json.kujo -- "$document"; done < <(find fixtures schemas -type f -name '*.json' -print | sort)
 tmp_state="$(mktemp -d)"; tmp_state="$(cd "$tmp_state" && pwd -P)"; trap 'find "$tmp_state" -depth -delete' EXIT
 KUJO_BIN="$KUJO_RUNTIME" ./bin/assetworks --help >/dev/null

@@ -1,0 +1,20 @@
+// Run each size in a fresh process to make peak RSS comparable.
+from src.core import dispatch
+from src.args import parse_args
+from tests.support import test_root, cleanup_tree
+arguments := args(); size := to_int(arguments[len(arguments)-1])
+if size < 67108865 || size > 4294967296 { throw("benchmark size must be >64 MiB and <=4 GiB") }
+root := test_root("streaming-benchmark"); create_dir(root)
+source := root + "/artifact.bin"; write_file(source,"AssetWorks deterministic sparse fixture\n",true); io_truncate(source,size)
+input := root + "/input.json"; write_file(input,to_json({"schema_version":"1.0.0","asset_id":"benchmark","media_type":"application/octet-stream","rights_reference":"CC0-1.0","accessibility_status":"described"}),true)
+start := current_timestamp()
+result := dispatch("manifest",parse_args(["--state",root + "/state","--actor","benchmark","--input",input,"--path",source,"--id","manifest-benchmark","--max-artifact-bytes",to_string(size)],[]))
+created_ms := current_timestamp()-start
+if !result["ok"] { print(to_json(result)); cleanup_tree(root); exit(1) }
+check_start := current_timestamp()
+validated := dispatch("validate",parse_args(["--state",root + "/state"],[]))
+validate_ms := current_timestamp()-check_start
+if !validated["ok"] || result["value"]["record"]["artifact"]["sha256"] != sha256_file(source) { cleanup_tree(root); throw("streaming benchmark digest/validation mismatch") }
+usage := process_usage()
+print(to_json({"bytes":size,"create_ms":created_ms,"validate_ms":validate_ms,"peak_rss_bytes":usage["peak_rss_bytes"],"cpu_seconds":usage["cpu_seconds"],"sha256":result["value"]["record"]["artifact"]["sha256"],"fixture":"sparse zero-filled file with fixed nonzero header; all logical bytes hashed","verified":true}))
+cleanup_tree(root)

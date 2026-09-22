@@ -1,0 +1,100 @@
+from src.common import get, has, parse_object, bounded_int
+from src.filesystem import confined_path, confined_read, confined_write, ensure_managed_dir, is_link
+
+func adapter_error(code, message) { return {"ok": false, "code": code, "error": message} }
+
+export func load_adapter(path) {
+    mut text := ""
+    try { text = confined_read(path, 65536) } except error { return adapter_error("adapter_config", "adapter configuration must be a safe file no larger than 64 KiB") }
+    parsed := parse_object(text, "adapter configuration"); if !parsed["ok"] { return parsed }
+    config := parsed["value"]
+    for key in keys(config) {
+        if !has(["schema_version", "provider_class", "binary", "probe_binary", "offline", "timeout_ms", "max_output_bytes", "artifact_max_bytes"], key) { return adapter_error("adapter_config", "unknown adapter option: " + key) }
+    }
+    if get(config, "schema_version", "") != "1.0.0" || get(config, "provider_class", "") != "ffmpeg" || get(config, "offline", false) != true { return adapter_error("adapter_config", "adapter must declare schema 1.0.0, ffmpeg and offline=true") }
+    for key in ["binary", "probe_binary"] {
+        executable := get(config, key, null)
+        if type(executable) != "string" || (!starts_with(executable, "/") && !regex_match(executable, "^[A-Za-z]:[/\\\\]")) || !path_is_file(executable) || is_link(executable) { return adapter_error("adapter_config", key + " must name an explicit absolute regular non-symlink executable") }
+    }
+    for bound in [{"name":"timeout_ms","default":30000,"max":300000}, {"name":"max_output_bytes","default":65536,"max":1048576}, {"name":"artifact_max_bytes","default":8388608,"max":8388608}] {
+        value := get(config, bound["name"], bound["default"])
+        if type(value) != "int" || value < 1 || value > bound["max"] { return adapter_error("adapter_config", bound["name"] + " is outside its integer bound") }
+        config[bound["name"]] = value
+    }
+    return {"ok": true, "value": config}
+}
+
+func read_media_bytes(path, maximum) {
+    target := confined_path(path)
+    return read_binary_file_beneath(target["root"], target["relative"], maximum)
+}
+
+func process_options(config) {
+    return {"timeout_ms": config["timeout_ms"], "max_output_bytes": config["max_output_bytes"], "inherit_env": false, "env_allow": ["SystemRoot", "WINDIR", "TEMP", "TMP"]}
+}
+
+func process_ok(result) { return result.exitcode == 0 && !result.timed_out && !result.cancelled && !result.stdout_truncated && !result.stderr_truncated }
+
+func discard_stage(directory, names) {
+    for name in names { try { delete_file(directory + "/" + name) } except error {} }
+    try { os_rmdir(directory) } except error {}
+}
+
+// Only explicit FFmpeg binaries run. No shell, arbitrary argv, filters or URLs
+// are accepted. Inputs are copied through a confined read before execution.
+export func execute_transform(command, payload, source_path, state, config, dry_run) {
+    input_format := get(payload, "input_format", "")
+    output_format := get(payload, "output_format", "")
+    if !has(["png", "jpeg", "wav", "mp4"], input_format) || !has(["png", "wav", "mp4"], output_format) { return adapter_error("adapter_format", "input_format must be png/jpeg/wav/mp4; output_format must be png/wav/mp4") }
+    if get(payload, "adapter", "") != "ffmpeg" { return adapter_error("adapter_config", "payload adapter must be ffmpeg") }
+    width := get(payload, "width", 320); height := get(payload, "height", 180)
+    if has(["resize", "thumbnail"], command) {
+        if type(width) != "int" || type(height) != "int" || width < 1 || height < 1 || width > 8192 || height > 8192 || output_format != "png" { return adapter_error("adapter_dimensions", "resize/thumbnail require png output and width/height in 1..8192") }
+    }
+    if source_path == "" { return adapter_error("adapter_input", "executing a transform requires --path") }
+    if dry_run { return {"ok": true, "value": {"execution": "planned", "provider_class": "ffmpeg", "input_format": input_format, "output_format": output_format}} }
+    directory := state + "/.adapter-staging/" + uuid_v4()
+    problem := ensure_managed_dir(directory); if problem != "" { return adapter_error("adapter_stage", problem) }
+    source_name := "source." + input_format; output_name := "output." + output_format
+    stage_files := [source_name, output_name, ".assetworks-directory"]
+    mut input_bytes := null
+    try { input_bytes = read_media_bytes(source_path, 8388608); confined_write(directory + "/" + source_name, input_bytes, false) }
+    except error { discard_stage(directory, stage_files); return adapter_error("adapter_input", "input must be a confined regular file no larger than 8 MiB") }
+    source_checksum := sha256(input_bytes); input_bytes = null
+    input_demuxer := input_format; if input_format == "png" || input_format == "jpeg" { input_demuxer = "image2" }; if input_format == "mp4" { input_demuxer = "mov" }
+    argv := [config["binary"], "-nostdin", "-hide_banner", "-loglevel", "error", "-protocol_whitelist", "file,pipe", "-f", input_demuxer, "-i", path_absolute(directory + "/" + source_name), "-map_metadata", "-1", "-threads", "1"]
+    if has(["resize", "thumbnail"], command) { argv = concat(argv, ["-vf", "scale=" + to_string(width) + ":" + to_string(height)]) }
+    if output_format == "png" { argv = concat(argv, ["-frames:v", "1", "-c:v", "png", "-f", "image2", "-update", "1"]) }
+    if output_format == "wav" { argv = concat(argv, ["-vn", "-c:a", "pcm_s16le", "-f", "wav"]) }
+    if output_format == "mp4" { argv = concat(argv, ["-c:v", "mpeg4", "-c:a", "aac", "-f", "mp4"]) }
+    argv = concat(argv, ["-fs", to_string(config["artifact_max_bytes"]), "-n", path_absolute(directory) + "/" + output_name])
+    mut process := null
+    try { process = spawn_process(argv, process_options(config)) }
+    except error { discard_stage(directory, stage_files); return adapter_error("adapter_failed", "adapter could not be started") }
+    if !process_ok(process) { discard_stage(directory, stage_files); return adapter_error("adapter_failed", "adapter failed, timed out, was cancelled or exceeded its log bound") }
+    probe_args := [config["probe_binary"], "-v", "error", "-protocol_whitelist", "file,pipe", "-show_streams", "-show_format", "-of", "json", path_absolute(directory) + "/" + output_name]
+    mut probe_process := null
+    try { probe_process = spawn_process(probe_args, process_options(config)) }
+    except error { discard_stage(directory, stage_files); return adapter_error("adapter_probe", "probe could not be started") }
+    if !process_ok(probe_process) { discard_stage(directory, stage_files); return adapter_error("adapter_probe", "generated artifact could not be probed within bounds") }
+    probe := parse_object(probe_process.stdout, "media probe")
+    if !probe["ok"] || type(get(get(probe, "value", {}), "streams", null)) != "array" || len(get(get(probe, "value", {}), "streams", [])) == 0 { discard_stage(directory, stage_files); return adapter_error("adapter_probe", "generated artifact has no valid streams") }
+    streams := probe["value"]["streams"]
+    if len(streams) > 32 { discard_stage(directory, stage_files); return adapter_error("adapter_probe", "generated artifact has too many streams") }
+    for stream in streams { if type(stream) != "dict" || type(get(stream, "codec_name", null)) != "string" || trim(get(stream, "codec_name", "")) == "" || len(get(stream, "codec_name", "")) > 128 || !has(["video", "audio"], get(stream, "codec_type", "")) { discard_stage(directory, stage_files); return adapter_error("adapter_probe", "generated stream metadata is invalid") } }
+    if has(["resize", "thumbnail"], command) && (get(streams[0], "width", 0) != width || get(streams[0], "height", 0) != height) { discard_stage(directory, stage_files); return adapter_error("adapter_probe", "generated dimensions do not match request") }
+    mut output_bytes := null
+    try { output_bytes = read_media_bytes(directory + "/" + output_name, config["artifact_max_bytes"]) }
+    except error { discard_stage(directory, stage_files); return adapter_error("adapter_output", "generated artifact is missing, unsafe or oversized") }
+    if len(output_bytes) == 0 { discard_stage(directory, stage_files); return adapter_error("adapter_output", "generated artifact is empty") }
+    digest := sha256(output_bytes); artifact_path := state + "/artifacts/" + digest + "." + output_format
+    try { confined_write(artifact_path, output_bytes, false) }
+    except error {
+        mut identical := false
+        try { identical = sha256(read_media_bytes(artifact_path, config["artifact_max_bytes"])) == digest } except read_error {}
+        if !identical { discard_stage(directory, stage_files); return adapter_error("adapter_output", "artifact publication conflict") }
+    }
+    result := {"ok": true, "value": {"artifact": {"path": path_absolute(artifact_path), "sha256": digest, "bytes": len(output_bytes)}, "receipt": {"execution": "completed", "provider_class": "ffmpeg", "binary": config["binary"], "probe_binary": config["probe_binary"], "source_sha256": source_checksum, "input_format": input_format, "output_format": output_format, "offline_protocols": ["file", "pipe"], "streams": streams}}}
+    discard_stage(directory, stage_files)
+    return result
+}

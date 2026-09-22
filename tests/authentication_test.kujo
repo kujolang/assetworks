@@ -1,0 +1,27 @@
+from src.core import dispatch
+from src.args import parse_args
+from src.authentication import verify_record_authentication
+from tests.support import test_root, cleanup_tree
+mut passed := 0; mut failed := 0
+func check(ok, label) { if ok { passed = passed + 1 } else { failed = failed + 1; eprint("FAIL: " + label) } }
+func opts(values) { return parse_args(values, ["json", "force", "dry-run"]) }
+root := test_root("authentication"); key_path := root + "-key"; bad_key_path := root + "-bad-key"; input_path := root + "-input.json"
+fixture_key := "fixture-only-assetworks-key-123456"
+write_file(key_path, fixture_key, true); write_file(bad_key_path, "different-fixture-key-123456", true)
+write_file(input_path, to_json({"schema_version":"1.0.0","asset_id":"sample","media_type":"image/png","rights_reference":"CC0-1.0","accessibility_status":"described"}), true)
+created := dispatch("manifest", opts(["--state",root,"--actor","tester","--input",input_path,"--path",path_absolute("fixtures/media/input.png"),"--id","manifest-authenticated","--key-file",key_path]))
+check(created["ok"], "manifest created with explicit HMAC key")
+check(!dispatch("validate", opts(["--state",root]))["ok"], "signed manifest requires verification key")
+check(dispatch("validate", opts(["--state",root,"--key-file",key_path]))["ok"], "correct key authenticates manifest")
+check(!dispatch("validate", opts(["--state",root,"--key-file",bad_key_path]))["ok"], "wrong key fails authentication")
+record := created["value"]["record"]
+record["actor"] = "tampered"
+check(!verify_record_authentication(record,fixture_key)["ok"], "HMAC binds actor and entire record")
+record = created["value"]["record"]; record["authentication"] = null
+check(!verify_record_authentication(record,fixture_key)["ok"], "explicit verification refuses unsigned downgrade")
+check(contains(to_json(created), fixture_key) == 0 && contains(read_file(root + "/transactions/manifest-authenticated.json"), fixture_key) == 0, "key material is absent from response and journal")
+write_file(key_path, "short", true)
+check(!dispatch("validate", opts(["--state",root,"--key-file",key_path]))["ok"], "short key rejected")
+cleanup_tree(root); cleanup_tree(key_path); cleanup_tree(bad_key_path); cleanup_tree(input_path)
+print(to_string(passed) + " passed; " + to_string(failed) + " failed")
+if failed > 0 { exit(1) }

@@ -1,0 +1,35 @@
+from src.common import get, canonical_json
+from src.filesystem import confined_read
+
+export func read_key_file(path) {
+    if path == "" { return {"ok": true, "value": ""} }
+    mut key := ""
+    try { key = confined_read(path, 4096) } except error { return {"ok": false, "code": "key_file_invalid", "error": "key file must be a confined UTF-8 file no larger than 4096 bytes"} }
+    if len(key) < 16 { return {"ok": false, "code": "key_file_invalid", "error": "key file must contain at least 16 bytes"} }
+    return {"ok": true, "value": key}
+}
+
+func unsigned_record(record) {
+    mut value := {}
+    for key in keys(record) { if key != "authentication" { value[key] = record[key] } }
+    return value
+}
+
+export func authenticate_record(record, key) {
+    signature := hmac_sha256(key, canonical_json(unsigned_record(record)))
+    return {"algorithm": "hmac-sha256", "signature": signature}
+}
+
+export func verify_record_authentication(record, key) {
+    authentication := get(record, "authentication", null)
+    if type(authentication) == "null" {
+        if key != "" && get(record, "command", "") == "manifest" { return {"ok": false, "code": "signature_missing", "error": "manifest is unsigned"} }
+        return {"ok": true}
+    }
+    if key == "" { return {"ok": false, "code": "verification_key_required", "error": "authenticated records require an explicit --key-file for validation"} }
+    if type(authentication) != "dict" || get(authentication, "algorithm", "") != "hmac-sha256" || type(get(authentication, "signature", null)) != "string" { return {"ok": false, "code": "invalid_signature", "error": "unsupported authentication shape or algorithm"} }
+    signature := authentication["signature"]
+    if !regex_match(signature, "^[a-f0-9]{64}$") { return {"ok": false, "code": "invalid_signature", "error": "signature must be a SHA-256 HMAC hex digest"} }
+    if !hmac_sha256_verify(key, canonical_json(unsigned_record(record)), signature) { return {"ok": false, "code": "signature_mismatch", "error": "manifest authentication failed"} }
+    return {"ok": true}
+}
