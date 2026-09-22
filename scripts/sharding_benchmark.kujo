@@ -1,18 +1,29 @@
-from src.filesystem import confined_path, confined_read, collection_path, directory_page, page_cursor
+// The shell wrapper runs phases as sibling processes so fixture preparation
+// cannot inflate the migration/inspection peak RSS receipts.
+from src.filesystem import confined_path, directory_page, page_cursor
 from src.migration import migrate_state
-from tests.support import test_root, cleanup_tree
 arguments := args()
-count := 100001
-if len(arguments)>0 { count = to_int(arguments[0]) }
+if len(arguments)!=3 { throw("use scripts/sharding_benchmark.sh COUNT") }
+mode := arguments[0]; root := arguments[1]; count := to_int(arguments[2])
 if count<100001 || count>1000000 { throw("count must be 100001..1000000") }
-root := test_root("sharding-benchmark"); source := root+"/flat"; target := root+"/sharded"
-create_dir(source+"/records")
-write_file(source+"/metadata.json",to_json({"schema_version":"1.0.0","tool":"assetworks","contract_version":"1.0.0"}),false)
-for index in range(0,count) { write_file(source+"/records/plan-"+to_string(1000000+index)+".json",to_string(index),false) }
-if directory_page(source+"/records","",1000)["ok"] { throw("legacy scan ceiling must still apply") }
-start := current_timestamp(); migrated := migrate_state(source,target); migration_ms := current_timestamp()-start
-if !migrated["ok"] { eprint(to_json(migrated)); throw("migration failed") }
-start = current_timestamp(); first := directory_page(target+"/records","",1000); first_ms := current_timestamp()-start
+source := root+"/flat"; target := root+"/sharded"
+if mode=="prepare" {
+    if file_exists(source) || file_exists(target) { throw("benchmark requires new fixture directories") }
+    create_dir(source+"/records")
+    write_file(source+"/metadata.json",to_json({"schema_version":"1.0.0","tool":"assetworks","contract_version":"1.0.0"}),false)
+    for index in range(0,count) { write_file(source+"/records/plan-"+to_string(1000000+index)+".json",to_string(index),false) }
+    print(to_json({"phase":"prepare","entries":count,"verified":true})); exit(0)
+}
+if mode=="migrate" {
+    if directory_page(source+"/records","",1000)["ok"] { throw("legacy scan ceiling must still apply") }
+    start := current_timestamp(); migrated := migrate_state(source,target); elapsed := current_timestamp()-start
+    if !migrated["ok"] { eprint(to_json(migrated)); throw("migration failed") }
+    if migrated["value"]["files"]!=count { throw("migration count mismatch") }
+    usage := process_usage()
+    print(to_json({"verified":true,"phase":"migrate","entries":count,"migration_ms":elapsed,"peak_rss_bytes":usage["peak_rss_bytes"],"cpu_seconds":usage["cpu_seconds"],"scope":"synthetic storage fixture; domain validation is separate"})); exit(0)
+}
+if mode!="inspect" { throw("unknown benchmark phase") }
+start := current_timestamp(); first := directory_page(target+"/records","",1000); first_ms := current_timestamp()-start
 if !first["ok"] || len(first["names"])==0 || first["scanned"]>=count { throw("sharded first page must avoid scanning the whole collection") }
 mut after := ""; mut done := false; mut observed := 0; mut pages := 0
 locator := confined_path(target+"/records")
@@ -30,5 +41,4 @@ while !done {
 }
 if observed!=count { throw("migration omitted or duplicated entries") }
 usage := process_usage()
-print(to_json({"verified":true,"entries":count,"migration_ms":migration_ms,"first_page_ms":first_ms,"first_page_entries_scanned":first["scanned"],"verify_all_ms":current_timestamp()-start,"pages":pages,"peak_rss_bytes":usage["peak_rss_bytes"],"cpu_seconds":usage["cpu_seconds"],"runtime_profile":"caller-supplied","scope":"storage layout and exact bytes; synthetic records are not domain-valid"}))
-cleanup_tree(root)
+print(to_json({"verified":true,"phase":"inspect","entries":count,"first_page_ms":first_ms,"first_page_entries_scanned":first["scanned"],"verify_all_ms":current_timestamp()-start,"pages":pages,"peak_rss_bytes":usage["peak_rss_bytes"],"cpu_seconds":usage["cpu_seconds"],"scope":"raw directory pages and exact bytes, not domain parsing; scanned excludes fixed root layout checks"}))

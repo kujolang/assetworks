@@ -103,7 +103,7 @@ jobs:
           for count in 1000 10000 100000; do
             bash scripts/scale_benchmark.sh "$count"
           done
-          .runtime/kujo/target/release/kujo run scripts/sharding_benchmark.kujo -- 100001
+          bash scripts/sharding_benchmark.sh 100001
       - name: Verify real container isolation
         if: runner.os == 'Linux'
         shell: bash

@@ -18,4 +18,6 @@ The same command migrates flat collections or rebuilds existing sharded collecti
 
 Migration preserves evidence, including malformed JSON; it does not certify domain validity. Run complete paginated `validate` against the new state, retaining failures from every page, before switching applications to it. External artifact paths stay unchanged. Migration alone is not a backup of external media or a volume-loss recovery procedure.
 
-`kujo run scripts/sharding_benchmark.kujo -- 100001` creates an owned synthetic legacy collection, confirms its flat scan ceiling, migrates it, traverses every shard, compares every copied file's bytes and emits timing/RSS evidence. The synthetic entries test storage, not media/domain validity; the script deletes its fixtures on success.
+`KUJO_BIN=/absolute/path/to/kujo bash scripts/sharding_benchmark.sh 100001` creates an owned synthetic legacy collection, confirms its flat scan ceiling, migrates it, traverses every shard, compares every copied file's bytes and emits timing/RSS evidence. The synthetic entries test storage, not media/domain validity; the script deletes its fixtures on success.
+
+Preparation, migration and inspection run as separate sibling processes so peak RSS is attributable to each measured phase. Raw shard-page timings exclude domain parsing and cannot be compared directly with full `list_records` timings. Entry scan counts describe the data shards; fixed root layout checks remain part of wall time.
