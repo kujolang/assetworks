@@ -45,7 +45,7 @@ export func confined_digest(path, maximum) {
     return sha256_file_beneath(target["root"], target["relative"], maximum)
 }
 
-// Opaque filename cursors also advance past malformed JSON names and marker files.
+// Opaque filename cursors also advance past malformed JSON names.
 export func safe_page_cursor(cursor) {
     if type(cursor) != "string" || len(cursor) > 1024 { return false }
     if cursor == "" { return true }
@@ -65,9 +65,19 @@ export func directory_page(directory, after, limit) {
     if !file_exists(directory) { return {"ok":true,"names":[],"truncated":false,"scanned":0} }
     cursor := after
     if starts_with(cursor,"file:") { cursor = substring(cursor,5,len(cursor)) }
-    else if cursor != "" { cursor = cursor + ".json" }
+    if starts_with(after,"file:") && ends_with(cursor,".json") { cursor = substring(cursor,0,len(cursor)-5) }
+    // The native iterator orders suffix-stripped IDs. Preserve its ordering for
+    // prefix IDs while allowing a cursor to advance beyond malformed .json.
+    skip_empty := after == "file:.json"
+    requested := limit
+    if skip_empty && requested < 1000 { requested = requested + 1 }
     try {
-        page := list_dir_beneath(target["root"],target["relative"],cursor,"",limit,100000)
+        page := list_dir_beneath(target["root"],target["relative"],cursor,".json",requested,100000)
+        if skip_empty {
+            names := []
+            for name in page["names"] { if name != ".json" { names = push(names,name) } }
+            page["names"] = names
+        }
         page["ok"] = true
         return page
     } except error { return {"ok":false,"error":"directory is unsafe, unreadable or exceeds 100000 entries"} }

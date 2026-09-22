@@ -29,6 +29,16 @@ check(!validation["ok"] && validation["code"]=="validation_incomplete" && valida
 resumed := dispatch("validate",parse_args(["--state",root,"--limit","3","--after",validation["value"]["next_after"],"--history-after",validation["value"]["next_history_after"],"--transaction-after",validation["value"]["next_transaction_after"]],[]))
 check(!resumed["value"]["started_from_origin"] && resumed["value"]["next_after"]!=validation["value"]["next_after"],"all validation cursors can resume")
 cleanup_tree(root)
+root = test_root("pagination-prefix"); create_dir(root); create_dir(root+"/records")
+for id in ["plan-a","plan-a-b"] { write_file(root+"/records/"+id+".json",to_json({"id":id,"record_type":"plan"}),true) }
+first := list_records(root,"","",1)
+check(first["records"][0]["id"]=="plan-a","prefix IDs sort by ID rather than filename suffix")
+check(len(list_records(root,"","plan-a",1)["records"])==1,"legacy cursor retains a longer prefixed ID")
+write_file(root+"/records/.json","{}",true)
+empty_name := list_records(root,"","",1)
+resumed_empty := list_records(root,"",empty_name["next_after"],1)
+check(len(empty_name["warnings"])==1 && len(resumed_empty["records"])==1 && resumed_empty["next_after"]!=empty_name["next_after"],"single-entry page advances beyond empty JSON basename")
+cleanup_tree(root)
 root = test_root("pagination-bytes"); create_dir(root); create_dir(root + "/records")
 padding := repeat("x",900000)
 for index in range(0,12) { id := "plan-"+to_string(1000+index); write_file(root+"/records/"+id+".json",to_json({"id":id,"record_type":"plan","padding":padding}),true) }
