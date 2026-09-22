@@ -21,26 +21,29 @@ See the [round-two review and next-session worklist](docs/REVIEW_FOLLOWUP_2026-0
 
 ## Quick install
 
-This development version requires the Kujo 1.5.0 candidate with confined filesystem primitives. CI pins source revision `a0d433e9aba27208a59927519c529d10f1f87f06`; use that build for reproducibility rather than assuming every older runtime binary includes these APIs. The [format/signature Linux/macOS/Windows suite](https://github.com/kujolang/assetworks/actions/runs/35776897250) passes at `dcf8282`, including 235 assertions per platform, real media adapters and concurrency checks. See the [blocker follow-up](docs/REVIEW_FOLLOWUP_2026-09-22.md) for limits, benchmarks and next-session opportunities.
-
-Build the pinned runtime in a separate checkout (Rust and the platform dependencies described in [Kujo's source-build guide](https://github.com/kujolang/kujo/blob/a0d433e9aba27208a59927519c529d10f1f87f06/README.md#build-and-test-from-source) are required):
+AssetWorks 0.3.0 requires **Kujo 1.5.0**. Download the matching native archive and checksum from [Kujo's release](https://github.com/kujolang/kujo/releases/tag/v1.5.0), verify the checksum, and extract the executable. Releases cover Linux and macOS on x64/ARM64, and Windows x64. On Windows, use Git Bash for the launcher and include `.exe` in `KUJO_BIN`.
 
 ```bash
-git clone https://github.com/kujolang/kujo.git assetworks-runtime
-git -C assetworks-runtime checkout a0d433e9aba27208a59927519c529d10f1f87f06
-cargo build --release --locked --manifest-path assetworks-runtime/Cargo.toml
-export KUJO_BIN="$PWD/assetworks-runtime/target/release/kujo"
-```
-
-On Windows the executable ends in `.exe`; [the CI workflow](.github/workflows/validate.yml) includes the OpenSSL setup and complete verification recipe.
-
-```bash
-git clone https://github.com/kujolang/assetworks.git
+export KUJO_BIN="/absolute/path/to/kujo"
+git clone --branch v0.3.0 --depth 1 https://github.com/kujolang/assetworks.git
 cd assetworks
 export PATH="$PWD/bin:$PATH"
 assetworks --version --json
 assetworks doctor --json
 ```
+
+A checksummed, self-contained source archive is also available from [AssetWorks 0.3.0](https://github.com/kujolang/assetworks/releases/tag/v0.3.0). The launcher preserves your working directory and loads its own modules. FFmpeg/FFprobe are optional dependencies for [media conversion](docs/ADAPTERS.md); planning and evidence workflows run without them.
+
+To build Kujo from source instead, follow its [platform build prerequisites](https://github.com/kujolang/kujo/blob/v1.5.0/README.md#build-and-test-from-source) and use the release's immutable source revision:
+
+```bash
+git clone https://github.com/kujolang/kujo.git assetworks-runtime
+git -C assetworks-runtime checkout cc2d7dbb59a8dc05f00d629e100932f56f4062f6
+cargo build --release --locked --manifest-path assetworks-runtime/Cargo.toml
+export KUJO_BIN="$PWD/assetworks-runtime/target/release/kujo"
+```
+
+The [full Linux/macOS/Windows regression matrix](https://github.com/kujolang/assetworks/actions/runs/35786822556) verifies 300 assertions per platform, real media adapters, concurrency and launcher behavior. Linux additionally verifies actual container boundaries and large-file/state measurements. See the [release acceptance record](docs/NEXT_SESSION_IMPLEMENTATION.md) for exact evidence and operating limits.
 
 ## Quick start
 
