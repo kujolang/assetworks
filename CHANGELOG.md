@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Made dry runs side-effect free and rejected impossible calendar dates and missing CLI values.
+- Fixed JSON version output, portable launcher resolution, and incomplete-validation reporting.
+- Rejected existing symlinked state/export ancestors and reduced repeated directory checks during listing.
+- Added review regressions and clarified capability boundaries with a prioritized September worklist.
+
 - Standardized README badge ordering and repository-local artifact ignores.
 - Kept Loop Engineering evidence available locally while removing it from published source.
 

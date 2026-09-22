@@ -1,5 +1,7 @@
 # AssetWorks production-readiness review
 
+Current assessment: [September 22 review and open worklist](REVIEW_2026-09-22.md). This document records the earlier pass; completed helper work does not imply CLI integration or universal enterprise readiness.
+
 ## Verdict
 
 AssetWorks 0.1.0 was a functional local-first foundation, not an honest universal enterprise-grade claim. This hardening pass makes it suitable for serious standalone tool-specific operations while keeping the remaining distributed-systems boundary explicit.

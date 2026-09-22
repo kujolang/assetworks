@@ -1,5 +1,7 @@
 # AssetWorks next-session worklist
 
+Current assessment: [September 22 review and open worklist](REVIEW_2026-09-22.md). This document records the earlier pass; completed helper work does not imply CLI integration or universal enterprise readiness.
+
 - [x] Define an adapter conformance suite for FFmpeg and image-processing providers.
 - [x] Add streaming checksum support after benchmarking files above the current 64 MiB bound.
 - [x] Add deterministic media-probe fixtures for duration, dimensions, and codecs.
