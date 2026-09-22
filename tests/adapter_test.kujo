@@ -16,6 +16,7 @@ flags := ["--state",root,"--input",payload_path,"--actor","adapter-test","--path
 preview := dispatch("resize", opts(concat(flags, ["--dry-run"])))
 check(preview["ok"] && !file_exists(root), "adapter dry run creates no files or processes")
 resized := dispatch("resize", opts(flags))
+if !resized["ok"] { eprint(to_json(resized)) }
 check(resized["ok"], "real ffmpeg resize succeeds")
 if resized["ok"] {
     record := resized["value"]["record"]
@@ -26,10 +27,12 @@ if resized["ok"] {
 payload["input_format"] = "wav"; payload["output_format"] = "wav"; payload["operation"] = "convert"
 write_file(payload_path, to_json(payload), true)
 converted := dispatch("convert", opts(["--state",root,"--input",payload_path,"--actor","adapter-test","--path",path_absolute("fixtures/media/input.wav"),"--adapter-config",config_path,"--id","transform-audio"]))
+if !converted["ok"] { eprint(to_json(converted)) }
 check(converted["ok"], "real ffmpeg audio conversion succeeds")
 payload["input_format"] = "png"; payload["output_format"] = "mp4"; payload["operation"] = "render"
 write_file(payload_path, to_json(payload), true)
 rendered := dispatch("render", opts(["--state",root,"--input",payload_path,"--actor","adapter-test","--path",path_absolute("fixtures/media/input.png"),"--adapter-config",config_path,"--id","transform-video"]))
+if !rendered["ok"] { eprint(to_json(rendered)) }
 check(rendered["ok"], "real ffmpeg video rendering succeeds")
 check(dispatch("validate", opts(["--state",root]))["ok"], "executed records and audit events validate")
 payload["input_format"] = "https"; write_file(payload_path, to_json(payload), true)
