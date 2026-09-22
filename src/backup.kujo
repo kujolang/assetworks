@@ -1,6 +1,6 @@
 from src.validation import verify_complete_state
 from src.common import get, parse_object
-from src.filesystem import confined_read, confined_write, confined_copy, confined_digest, collection_path, directory_page, page_cursor, is_link
+from src.filesystem import confined_read, confined_write, confined_copy, confined_digest, directory_page, page_cursor, is_link
 from src.storage import protected_output, validate_state_path, canonical_destination
 from src.migration import migrate_state
 

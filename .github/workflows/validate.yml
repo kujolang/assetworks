@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 env:
-  KUJO_COMMIT: 66b9e3f787b24de875abbf939bc9e278b7a3e22e
+  KUJO_COMMIT: a0d433e9aba27208a59927519c529d10f1f87f06
 jobs:
   full-suite-matrix:
     strategy:
@@ -28,6 +28,7 @@ jobs:
         with:
           path: .runtime/kujo/target
           key: runtime-${{ runner.os }}-${{ runner.arch }}-${{ env.KUJO_COMMIT }}
+          restore-keys: runtime-${{ runner.os }}-${{ runner.arch }}-
       - name: Configure Windows OpenSSL
         if: runner.os == 'Windows' && steps.runtime-cache.outputs.cache-hit != 'true'
         shell: pwsh
@@ -97,6 +98,7 @@ jobs:
         run: |
           for size in 68157440 1073741824 4294967296; do
             .runtime/kujo/target/release/kujo run scripts/streaming_benchmark.kujo -- "$size"
+            .runtime/kujo/target/release/kujo run scripts/copy_benchmark.kujo -- "$size"
           done
           for count in 1000 10000 100000; do
             bash scripts/scale_benchmark.sh "$count"

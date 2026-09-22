@@ -24,8 +24,12 @@ export func load_adapter(path) {
     isolation := get(config,"isolation","local")
     if isolation!="local" && isolation!="container" { return adapter_error("adapter_config","isolation must be local or container") }
     config["isolation"] = isolation
+    if isolation=="local" {
+        for option in ["docker_binary","docker_host","image"] { if has_key(config,option)==1 { return adapter_error("adapter_config","container options require explicit isolation=container") } }
+    }
     if isolation=="container" {
         problem := isolation_config_error(config); if problem!="" { return adapter_error("adapter_config",problem) }
+        if (has_key(config,"binary")==1 && config["binary"]!="/usr/bin/ffmpeg") || (has_key(config,"probe_binary")==1 && config["probe_binary"]!="/usr/bin/ffprobe") { return adapter_error("adapter_config","container codec paths are fixed") }
         config["binary"]="/usr/bin/ffmpeg"; config["probe_binary"]="/usr/bin/ffprobe"
     }
     for key in ["binary", "probe_binary"] {

@@ -1,0 +1,17 @@
+from src.filesystem import confined_copy, confined_digest
+from tests.support import test_root, cleanup_tree
+arguments := args(); size := to_int(arguments[len(arguments)-1])
+if size<67108865 || size>4294967296 { throw("copy benchmark size must be >64 MiB and <=4 GiB") }
+root := test_root("copy-benchmark"); create_dir(root)
+source := root+"/source.bin"; destination := root+"/copy.bin"
+write_file(source,"AssetWorks deterministic streaming copy fixture\n",false); io_truncate(source,size)
+expected := confined_digest(source,size)
+start := current_timestamp(); copied := confined_copy(source,destination,size); copy_ms := current_timestamp()-start
+actual := confined_digest(destination,size)
+if copied["bytes"]!=size || copied["sha256"]!=expected["sha256"] || actual["bytes"]!=size || actual["sha256"]!=expected["sha256"] { throw("streaming copy receipt mismatch") }
+mut rejected := false
+try { confined_copy(source,root+"/oversized",size-1) } except error { rejected=true }
+if !rejected || file_exists(root+"/oversized") { throw("oversized copy published a destination") }
+usage := process_usage()
+print(to_json({"verified":true,"bytes":size,"copy_ms":copy_ms,"peak_rss_bytes":usage["peak_rss_bytes"],"cpu_seconds":usage["cpu_seconds"],"sha256":copied["sha256"],"fixture":"sparse source, fully materialized destination; exact-byte verification and rejected bound"}))
+cleanup_tree(root)

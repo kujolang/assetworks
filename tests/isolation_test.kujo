@@ -15,7 +15,9 @@ loaded := load_adapter(config_path)
 check(loaded["ok"],"explicit immutable local container configuration")
 if !loaded["ok"] { eprint(to_json(loaded)); cleanup_tree(root); exit(1) }
 config=loaded["value"]
-context := start_container(config,root)
+started := start_container(config,root)
+if !started["ok"] { eprint(to_json(started)); cleanup_tree(root); exit(1) }
+context := started["value"]
 inspection := docker_call(context,["inspect",context["name"]])
 settings := parse_json(inspection.stdout)[0]; host := settings["HostConfig"]
 check(host["NetworkMode"]=="none" && host["ReadonlyRootfs"] && host["PidsLimit"]==64 && host["Memory"]==268435456 && host["MemorySwap"]==268435456 && host["NanoCpus"]==1000000000,"daemon enforces network, memory, CPU, PID and rootfs restrictions")
@@ -56,6 +58,13 @@ if result["ok"] {
 for bad in ["ubuntu:latest","sha256:bad"] { changed:=config; changed["image"]=bad; write_file(config_path,to_json(changed),true); check(!load_adapter(config_path)["ok"],"mutable/invalid image refused") }
 changed:=config; changed["docker_host"]="tcp://localhost:2375"; write_file(config_path,to_json(changed),true)
 check(!load_adapter(config_path)["ok"],"remote daemon configuration refused")
+changed:=config; changed["isolation"]="local"; write_file(config_path,to_json(changed),true)
+check(!load_adapter(config_path)["ok"],"container options cannot silently select local execution")
+changed:=config; changed["binary"]="/some/host/codec"; write_file(config_path,to_json(changed),true)
+check(!load_adapter(config_path)["ok"],"container executable overrides refused")
+changed:=config; changed["image"]="sha256:"+repeat("0",64); write_file(config_path,to_json(changed),true)
+unavailable := dispatch("resize",opts(["--state",root+"/unavailable","--actor","isolation-test","--input",payload_path,"--path",path_absolute("fixtures/media/input.png"),"--adapter-config",config_path,"--id","transform-unavailable"]))
+check(!unavailable["ok"] && !file_exists(root+"/unavailable/records/transform-unavailable.json"),"unavailable local image fails without fallback or receipt")
 cleanup_tree(root)
 print(to_string(passed)+" passed; "+to_string(failed)+" failed")
 if failed>0 { exit(1) }

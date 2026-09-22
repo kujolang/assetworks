@@ -19,17 +19,17 @@ export func stop_container(context) {
     return removed
 }
 export func start_container(config, directory) {
-    problem := isolation_config_error(config); if problem!="" { throw(problem) }
+    problem := isolation_config_error(config); if problem!="" { return {"ok":false,"error":problem} }
     private_config := create_temp_dir(directory,".docker-config-")
     context := {"config":config,"config_dir":private_config,"name":"assetworks-"+uuid_v4(),"argv":[config["docker_binary"],"--config",private_config,"--host",config["docker_host"]]}
     try {
         inspect := docker_call(context,["image","inspect",config["image"],"--format","{{.Id}}"])
-        if !isolated_process_ok(inspect) || trim(inspect.stdout)!=config["image"] { throw("configured local image unavailable") }
+        if !isolated_process_ok(inspect) || trim(inspect.stdout)!=config["image"] { stop_container(context); return {"ok":false,"error":"configured local image unavailable or inspection exceeded bounds"} }
         create := docker_call(context,["create","--pull","never","--name",context["name"],"--label","org.kujolang.assetworks.isolated=true","--network","none","--read-only","--cap-drop","ALL","--security-opt","no-new-privileges=true","--user","65532:65532","--memory","256m","--memory-swap","256m","--cpus","1","--pids-limit","64","--ulimit","nofile=128:128","--ulimit","core=0:0","--log-driver","none","--tmpfs","/work:rw,noexec,nosuid,nodev,size=16777216,mode=1777","--tmpfs","/tmp:rw,noexec,nosuid,nodev,size=8388608,mode=1777","--entrypoint","/bin/sleep",config["image"],"300"])
-        if !isolated_process_ok(create) { throw("container creation failed") }
-        started := docker_call(context,["start",context["name"]]); if !isolated_process_ok(started) { throw("container start failed") }
-        return context
-    } except error { stop_container(context); throw("isolated runtime unavailable: "+to_string(error)) }
+        if !isolated_process_ok(create) { stop_container(context); return {"ok":false,"error":"container creation failed: "+substring(create.stderr,0,1024),"timed_out":create.timed_out} }
+        started := docker_call(context,["start",context["name"]]); if !isolated_process_ok(started) { stop_container(context); return {"ok":false,"error":"container start failed or exceeded bounds"} }
+        return {"ok":true,"value":context}
+    } except error { stop_container(context); return {"ok":false,"error":"isolated runtime unavailable: "+to_string(error)} }
 }
 export func isolated_exec(context, arguments) { return docker_call(context,concat(["exec",context["name"]],arguments)) }
 func container_argv(arguments, source_path, output_path, source_name, output_name) {
@@ -44,7 +44,9 @@ func container_argv(arguments, source_path, output_path, source_name, output_nam
 export func execute_isolated(config, directory, source_path, output_path, source_name, output_name, argv, probe_args) {
     mut context := null
     try {
-        context = start_container(config,directory)
+        started := start_container(config,directory)
+        if !started["ok"] { return {"ok":false,"code":"adapter_isolation","error":started["error"]} }
+        context = started["value"]
         source := confined_path(source_path)
         upload_options := options(config)
         upload_options["stdin"] = read_binary_file_beneath(source["root"],source["relative"],8388608)

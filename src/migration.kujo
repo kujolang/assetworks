@@ -1,6 +1,5 @@
-from src.filesystem import confined_path, confined_read, confined_write, confined_copy, collection_sharded, collection_path, directory_page, page_cursor, is_link
+from src.filesystem import confined_path, confined_write, confined_copy, collection_sharded, directory_page, page_cursor, is_link
 from src.storage import protected_output, validate_state_path
-from src.common import get
 
 // Out-of-place rebuild: no mutable lookup index, and no changes to the source.
 // The operator must stop writers for the duration; directory pages are not a

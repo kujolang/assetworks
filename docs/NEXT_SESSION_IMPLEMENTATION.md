@@ -30,3 +30,11 @@ All six items remain in scope. No final release or overall completion is claimed
 - Sharded layout and out-of-place legacy migration/rebuild pass 46 focused assertions. The 100,001-entry local benchmark is running; migration's per-file durability cost must be reported honestly.
 - Backup/restore passes a 15-assertion whole-volume-loss/tamper drill plus four public-signature restore assertions, including revoked-key refusal. The local regression gate passed 300 assertions and both contention checks before the subsequent isolation integration.
 - Container isolation is being verified against a locally built immutable image. Tagged releases and installed-artifact verification remain outstanding.
+
+## Candidate checkpoint
+
+- Application candidate is 0.3.0 and preserves 0.1.0/0.2.0 records. Runtime candidate is 1.5.0. No tag or completed installation is claimed yet.
+- Runtime merged upstream main `78d8725` into `a0d433e`; documentation-only follow-up `e5a317a` fixes the required field-note format. Local checks pass 21 rooted-filesystem unit tests, five VM/interpreter boundary tests, and upstream bounded-stdin/rooted-digest integrations. Generated source inventories were refreshed after a hosted drift failure.
+- The full application gate passes 300 assertions and both contention checks on the merged 1.5.0 development runtime. Real container isolation passes 21 checks, including unavailable-image refusal without local fallback. Container transfer uses bounded stdin/base64 stdout rather than host archive extraction.
+- Final matrix, the >100k measurement, the published releases and downloaded-artifact installation remain required before completion. The local debug benchmark is slow; do not report a performance win without its completed receipt and the optimized-runtime measurements.
+- [Round-two review and next-session worklist](REVIEW_FOLLOWUP_2026-09-22_ROUND_2.md) records the new scope and explicitly pending acceptance evidence.

@@ -1,7 +1,7 @@
 from src.validation import validate_record
 from src.backup import backup_state, restore_state
 from src.migration import migrate_state
-from src.authentication import read_auth_options, authenticate_record, verify_record_authentication
+from src.authentication import read_auth_options, authenticate_record
 from src.public_authentication import sign_public_record
 from src.adapters import load_adapter, execute_transform
 from src.filesystem import confined_read, confined_write, confined_digest, safe_page_cursor
@@ -151,7 +151,7 @@ export func dispatch(command, parsed) {
     }
     if command == "migrate" { return migrate_state(state,flag(parsed,"output","")) }
     if command == "recover" { return recover_record(state, flag(parsed, "id", "")) }
-    if command == "version" { return {"ok": true, "value": {"tool": p["slug"], "version": p["version"], "contract_version": p["contract_version"], "supported_record_versions": get(p, "record_versions", [p["version"]]), "minimum_kujo": "1.4.0-preview (pinned source required)", "tested_kujo_commit": "66b9e3f787b24de875abbf939bc9e278b7a3e22e"}} }
+    if command == "version" { return {"ok": true, "value": {"tool": p["slug"], "version": p["version"], "contract_version": p["contract_version"], "supported_record_versions": get(p, "record_versions", [p["version"]]), "minimum_kujo": "1.5.0 candidate (pinned source required)", "tested_kujo_commit": "a0d433e9aba27208a59927519c529d10f1f87f06"}} }
     if command == "doctor" {
         state_error := validate_state_path(state); listing := {"records": [], "warnings": [], "truncated": false}
         if state_error == "" { listing = list_records(state, "", "", 1000) }
@@ -162,7 +162,7 @@ export func dispatch(command, parsed) {
         if listing["truncated"] || transactions["truncated"] { code = "inspection_incomplete"; error = "doctor inspected only the first 1000 records" }
         if state_error != "" { code = "unsafe_state"; error = state_error }
         if state_error == "" && len(listing["warnings"]) > 0 { code = "corrupt_state"; error = "one or more records are unreadable" }
-        return {"ok": healthy, "code": code, "error": error, "value": {"healthy": healthy, "tool": p["slug"], "version": p["version"], "minimum_kujo": "1.4.0-preview (pinned source required)", "tested_kujo_commit": "66b9e3f787b24de875abbf939bc9e278b7a3e22e", "state": state, "record_count": len(listing["records"]), "truncated": listing["truncated"], "corrupt_records": listing["warnings"], "transaction_warnings": transactions["warnings"], "limits": {"input_bytes": 1048576, "record_bytes": 1048576, "artifact_bytes": 67108864, "list_records": 1000}, "limitations": p["limitations"]}}
+        return {"ok": healthy, "code": code, "error": error, "value": {"healthy": healthy, "tool": p["slug"], "version": p["version"], "minimum_kujo": "1.5.0 candidate (pinned source required)", "tested_kujo_commit": "a0d433e9aba27208a59927519c529d10f1f87f06", "state": state, "record_count": len(listing["records"]), "truncated": listing["truncated"], "corrupt_records": listing["warnings"], "transaction_warnings": transactions["warnings"], "limits": {"input_bytes": 1048576, "record_bytes": 1048576, "artifact_bytes": 67108864, "list_records": 1000}, "limitations": p["limitations"]}}
     }
     if has(p["show_commands"], command) {
         id := flag(parsed, "id", ""); if id == "" { return {"ok": false, "code": "id_required", "error": "show requires --id"} }

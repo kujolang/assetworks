@@ -21,13 +21,13 @@ See the [blocker follow-up and next-session opportunities](docs/REVIEW_FOLLOWUP_
 
 ## Quick install
 
-This development version requires Kujo 1.4.0 with confined filesystem primitives. CI pins source revision `66b9e3f787b24de875abbf939bc9e278b7a3e22e`; use that build for reproducibility rather than assuming every binary labeled 1.4.0 includes these preview APIs. The [format/signature Linux/macOS/Windows suite](https://github.com/kujolang/assetworks/actions/runs/35776897250) passes at `dcf8282`, including 235 assertions per platform, real media adapters and concurrency checks. See the [blocker follow-up](docs/REVIEW_FOLLOWUP_2026-09-22.md) for limits, benchmarks and next-session opportunities.
+This development version requires the Kujo 1.5.0 candidate with confined filesystem primitives. CI pins source revision `a0d433e9aba27208a59927519c529d10f1f87f06`; use that build for reproducibility rather than assuming every older runtime binary includes these APIs. The [format/signature Linux/macOS/Windows suite](https://github.com/kujolang/assetworks/actions/runs/35776897250) passes at `dcf8282`, including 235 assertions per platform, real media adapters and concurrency checks. See the [blocker follow-up](docs/REVIEW_FOLLOWUP_2026-09-22.md) for limits, benchmarks and next-session opportunities.
 
-Build the pinned runtime in a separate checkout (Rust and the platform dependencies described in [Kujo's source-build guide](https://github.com/kujolang/kujo/blob/66b9e3f787b24de875abbf939bc9e278b7a3e22e/README.md#build-and-test-from-source) are required):
+Build the pinned runtime in a separate checkout (Rust and the platform dependencies described in [Kujo's source-build guide](https://github.com/kujolang/kujo/blob/a0d433e9aba27208a59927519c529d10f1f87f06/README.md#build-and-test-from-source) are required):
 
 ```bash
 git clone https://github.com/kujolang/kujo.git assetworks-runtime
-git -C assetworks-runtime checkout 66b9e3f787b24de875abbf939bc9e278b7a3e22e
+git -C assetworks-runtime checkout a0d433e9aba27208a59927519c529d10f1f87f06
 cargo build --release --locked --manifest-path assetworks-runtime/Cargo.toml
 export KUJO_BIN="$PWD/assetworks-runtime/target/release/kujo"
 ```
