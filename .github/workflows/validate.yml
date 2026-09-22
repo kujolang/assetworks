@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 env:
-  KUJO_COMMIT: 4e987a4e10d4b45621805e5acb420de4c9824b90
+  KUJO_COMMIT: 66b9e3f787b24de875abbf939bc9e278b7a3e22e
 jobs:
   full-suite-matrix:
     strategy:
@@ -75,6 +75,7 @@ jobs:
         shell: bash
         run: |
           cargo test --release --locked --manifest-path .runtime/kujo/Cargo.toml --test native_api_security_boundaries sha256_beneath
+          cargo test --release --locked --manifest-path .runtime/kujo/Cargo.toml --test native_api_security_boundaries copy_beneath
           cargo test --release --locked --manifest-path .runtime/kujo/Cargo.toml --test directory_page_contract
       # Integration tests build the CLI binary as well as the native contracts.
       # Preserve this verified runtime even if a later application test fails.
@@ -100,3 +101,4 @@ jobs:
           for count in 1000 10000 100000; do
             bash scripts/scale_benchmark.sh "$count"
           done
+          .runtime/kujo/target/release/kujo run scripts/sharding_benchmark.kujo -- 100001

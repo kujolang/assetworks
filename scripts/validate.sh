@@ -19,6 +19,8 @@ cd "$ROOT"
 "$KUJO_RUNTIME" run tests/public_authentication_test.kujo
 "$KUJO_RUNTIME" run tests/streaming_test.kujo
 "$KUJO_RUNTIME" run tests/pagination_test.kujo
+"$KUJO_RUNTIME" run tests/sharding_test.kujo
+"$KUJO_RUNTIME" run tests/backup_test.kujo
 "$KUJO_RUNTIME" run tests/filesystem_test.kujo
 KUJO_BIN="$KUJO_RUNTIME" "$KUJO_RUNTIME" run tests/recovery_test.kujo
 KUJO_BIN="$KUJO_RUNTIME" bash scripts/contention_benchmark.sh

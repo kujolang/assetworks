@@ -1,0 +1,58 @@
+from src.core import dispatch
+from src.args import parse_args
+from src.filesystem import collection_path, confined_read, confined_write, directory_page, page_cursor, safe_page_cursor
+from src.storage import list_records, record_path, recover_record
+from tests.support import test_root, cleanup_tree
+mut passed := 0; mut failed := 0
+func check(ok, label) { if ok { passed = passed+1 } else { failed = failed+1; eprint("FAIL: "+label) } }
+func opts(values) { return parse_args(values,["json","force","dry-run"]) }
+root := test_root("shards")
+check(dispatch("init",opts(["--state",root,"--layout","sharded-v1"]))["ok"],"explicit new sharded state")
+check(!dispatch("init",opts(["--state",root,"--layout","sharded-v1"]))["ok"],"existing state layout never changes implicitly")
+for id in ["plan-aaa","plan-aab","plan-bbb","plan-bbc","plan-ccc","plan-ccd"] {
+    created := dispatch("plan",opts(["--state",root,"--id",id,"--actor","shard-test","--input","fixtures/core.json"]))
+    if !created["ok"] { eprint(to_json(created)) }
+    check(created["ok"] && file_exists(record_path(root,id)) && !file_exists(root+"/records/"+id+".json"),"sharded write "+id)
+    check(recover_record(root,id)["ok"],"sharded recovery "+id)
+    check(dispatch("validate",opts(["--state",root,"--id",id]))["ok"],"sharded record reconciliation "+id)
+}
+mut after := ""; mut ids := []; mut done := false
+while !done {
+    page := list_records(root,"",after,1)
+    check(len(page["warnings"])==0,"safe shard page")
+    for record in page["records"] { ids = push(ids,record["id"]) }
+    done = !page["truncated"]
+    if !done { check(page["next_after"] != after && safe_page_cursor(page["next_after"]),"cursor advances"); after = page["next_after"] }
+}
+check(len(ids)==6 && len(unique(ids))==6,"all shards visited exactly once")
+check(!directory_page(root+"/records","file:plan-aaa.json",1)["ok"],"flat cursor rejected")
+confined_write(root+"/records/stray.json","{}",false)
+check(!directory_page(root+"/records","",1)["ok"],"mixed layout fails closed")
+delete_file(root+"/records/stray.json")
+confined_write(root+"/records/00/wrong.json","{}",false)
+check(!directory_page(root+"/records","",1)["ok"],"misplaced shard entry fails closed")
+delete_file(root+"/records/00/wrong.json")
+rebuilt := root+"-rebuilt"
+rebuilt_result := dispatch("migrate",opts(["--state",root,"--output",rebuilt]))
+if !rebuilt_result["ok"] { eprint(to_json(rebuilt_result)) }
+check(rebuilt_result["ok"],"rebuild sharded state")
+check(confined_read(record_path(rebuilt,"plan-aaa"),1048576)==confined_read(record_path(root,"plan-aaa"),1048576),"rebuild preserves exact bytes")
+check(dispatch("validate",opts(["--state",rebuilt,"--id","plan-aaa"]))["ok"],"rebuilt audit remains valid")
+check(!dispatch("migrate",opts(["--state",root,"--output",rebuilt]))["ok"],"migration refuses existing destination")
+check(!dispatch("migrate",opts(["--state",root,"--output",root+"/nested"]))["ok"],"migration refuses source descendants")
+flat := root+"-flat"; migrated := root+"-migrated"
+check(dispatch("plan",opts(["--state",flat,"--id","plan-flat","--actor","shard-test","--input","fixtures/core.json"]))["ok"],"legacy flat fixture")
+result := dispatch("migrate",opts(["--state",flat,"--output",migrated]))
+if !result["ok"] { eprint(to_json(result)) }
+check(result["ok"] && dispatch("validate",opts(["--state",migrated,"--id","plan-flat"]))["ok"],"legacy migration preserves reconciliation")
+confined_write(flat+"/records/invalid.json","{",false)
+// Migration preserves raw evidence; semantic validation remains an explicit
+// required acceptance step before switching an application to the new state.
+failed_root := root+"-incomplete"
+confined_write(flat+"/records/unsafe name.json","{}",false)
+check(!dispatch("migrate",opts(["--state",flat,"--output",failed_root]))["ok"],"migration rejects unsafe filenames")
+check(!dispatch("doctor",opts(["--state",failed_root]))["ok"],"incomplete destination cannot be opened")
+for path in [rebuilt,flat,migrated,failed_root] { cleanup_tree(path) }
+cleanup_tree(root)
+print(to_string(passed)+" passed; "+to_string(failed)+" failed")
+if failed > 0 { exit(1) }

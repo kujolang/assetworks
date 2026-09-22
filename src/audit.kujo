@@ -1,4 +1,4 @@
-from src.filesystem import confined_read, directory_page
+from src.filesystem import confined_read, directory_page, collection_path, page_cursor
 from src.common import get, safe_id, valid_timestamp, parse_object
 from src.storage import history_dir, load_record, validate_state_path
 
@@ -12,7 +12,7 @@ export func load_event(state, id) {
     dir := history_dir(state)
     problem := validate_state_path(dir)
     if problem != "" { return failure("unsafe_state", problem) }
-    path := dir + "/" + id + ".json"
+    path := collection_path(dir, id + ".json")
     if !path_is_file(path) || path_is_symlink(path) { return failure("history_missing", "audit event is missing or unsafe: " + id) }
     if file_size(path) > 32768 { return failure("history_too_large", "audit event exceeds 32 KiB") }
     mut event_contents := ""
@@ -47,7 +47,7 @@ export func list_history(state, after, limit, reconcile) {
     truncated := page["truncated"]
     for name in page["names"] {
         if read_bytes + 1081344 > 8388608 { truncated = true; break }
-        next_after = "file:" + name
+        next_after = page_cursor(page,name)
         if ends_with(name,".json") {
             id := substring(name,0,len(name)-5)
             loaded := load_event(state,id); read_bytes = read_bytes + get(loaded,"read_bytes",32768)

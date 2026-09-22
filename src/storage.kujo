@@ -1,4 +1,4 @@
-from src.filesystem import confined_read, confined_write, is_link, ensure_managed_dir, directory_page
+from src.filesystem import confined_read, confined_write, is_link, ensure_managed_dir, directory_page, collection_path, page_cursor
 from src.common import get, parse_object, safe_id, canonical_json, valid_timestamp
 
 // Inspect existing explicitly named components before reading or creating state.
@@ -17,6 +17,7 @@ export func validate_path_components(path) {
 }
 
 export func validate_state_path(path) {
+    if file_exists(path+"/.migration-in-progress") || is_link(path+"/.migration-in-progress") { return "migration is incomplete; destination cannot be used as state" }
     error := validate_path_components(path); if error != "" { return error }
     if file_exists(path) && !path_is_dir(path) { return "state path is not a directory" }
     return ""
@@ -25,7 +26,7 @@ export func validate_state_path(path) {
 export func records_dir(state) { return join_path(state, "records") }
 export func history_dir(state) { return join_path(state, "history") }
 func locks_dir(state) { return join_path(state, "locks") }
-export func record_path(state, id) { return join_path(records_dir(state), id + ".json") }
+export func record_path(state, id) { return collection_path(records_dir(state), id + ".json") }
 
 export func initialize(state, metadata) {
     error := validate_state_path(state); if error != "" { return {"ok": false, "code": "unsafe_state", "error": error} }
@@ -48,8 +49,18 @@ export func initialize(state, metadata) {
     return {"ok": true, "value": {"state": state, "initialized": true}}
 }
 
+export func initialize_layout(state, metadata, layout) {
+    if layout == "flat" { return initialize(state, metadata) }
+    if layout != "sharded-v1" { return storage_error("invalid_layout", "layout must be flat or sharded-v1") }
+    if file_exists(state) || is_link(state) { return storage_error("layout_exists", "sharded initialization requires a new state directory; use migrate for existing state") }
+    try {
+        for name in ["records","history","transactions"] { confined_write(state+"/"+name+"/.assetworks-shards", "sha256-256-v1\n", false) }
+        return initialize(state,metadata)
+    } except error { return storage_error("layout_failed", "layout initialization failed; inspect the new directory before retrying") }
+}
+
 func storage_error(code, message) { return {"ok": false, "code": code, "error": message} }
-func journal_path(state, id) { return state + "/transactions/" + id + ".json" }
+func journal_path(state, id) { return collection_path(state + "/transactions", id + ".json") }
 
 func event_text(record, record_checksum) {
     return to_json_pretty({"schema_version": "1.0.0", "event": "record.created", "record_id": record["id"], "actor": record["actor"], "at": record["created_at"], "record_sha256": record_checksum}) + "\n"
@@ -84,7 +95,7 @@ export func save_with_checkpoints(state, record, checkpoint) {
     if byte_length(serialized) > 1048576 { return storage_error("record_too_large", "serialized record exceeds 1 MiB") }
     record_checksum := sha256(serialized)
     event_name := substring(sha256(record["created_at"] + "\n" + id), 0, 32) + ".json"
-    event_path := history_dir(state) + "/" + event_name
+    event_path := collection_path(history_dir(state), event_name)
     if file_exists(event_path) || is_link(event_path) { return storage_error("history_conflict", "audit history event already exists") }
     audit_text := event_text(record, record_checksum)
     journal := {"schema_version": "1.0.0", "record_id": id, "record_text": serialized, "record_sha256": record_checksum, "event_name": event_name, "event_text": audit_text}
@@ -124,14 +135,14 @@ export func recover_record(state, id) {
     data := transaction["value"]
     serialized := data["record_text"]; expected_event := data["event_text"]; expected_name := data["event_name"]
     // Preflight both files before filling either gap. Never delete or replace data.
-    for entry in [{"path": record_path(state, id), "text": serialized}, {"path": history_dir(state) + "/" + expected_name, "text": expected_event}] {
+    for entry in [{"path": record_path(state, id), "text": serialized}, {"path": collection_path(history_dir(state), expected_name), "text": expected_event}] {
         if file_exists(entry["path"]) || is_link(entry["path"]) {
             try { if confined_read(entry["path"], 1048576) != entry["text"] { return storage_error("recovery_conflict", "existing transaction data differs") } }
             except error { return storage_error("recovery_conflict", "existing transaction data is unsafe") }
         }
     }
     published := publish_exact(record_path(state, id), serialized); if !published["ok"] { return published }
-    published = publish_exact(history_dir(state) + "/" + expected_name, expected_event); if !published["ok"] { return published }
+    published = publish_exact(collection_path(history_dir(state), expected_name), expected_event); if !published["ok"] { return published }
     return {"ok": true, "value": {"id": id, "recovered": true, "checksum": data["checksum"]}}
 }
 
@@ -142,7 +153,7 @@ export func inspect_transactions(state, after, limit) {
     truncated := page["truncated"]
     for name in page["names"] {
         if read_bytes + 6291456 > 33554432 { truncated = true; break }
-        next_after = "file:" + name
+        next_after = page_cursor(page,name)
         if ends_with(name,".json") {
             id := substring(name,0,len(name)-5)
             transaction := load_transaction(state,id)
@@ -150,7 +161,7 @@ export func inspect_transactions(state, after, limit) {
             read_bytes = read_bytes + get(transaction,"read_bytes",4194304)
             if transaction["ok"] {
                 data := transaction["value"]
-                for item in [{"path":record_path(state,id),"text":data["record_text"]},{"path":history_dir(state)+"/"+data["event_name"],"text":data["event_text"]}] {
+                for item in [{"path":record_path(state,id),"text":data["record_text"]},{"path":collection_path(history_dir(state),data["event_name"]),"text":data["event_text"]}] {
                     try {
                         actual := confined_read(item["path"],1048576); read_bytes = read_bytes + byte_length(actual)
                         if actual != item["text"] { transaction = storage_error("transaction_drift","stored bytes differ from their transaction") }
@@ -192,7 +203,7 @@ export func list_records(state, kind, after, limit) {
     for name in page["names"] {
         // Reserve the per-file maximum before reading; never exceed 8 MiB per page.
         if read_bytes + 1048576 > 8388608 { truncated = true; break }
-        next_after = "file:" + name
+        next_after = page_cursor(page,name)
         if ends_with(name,".json") {
             id := substring(name,0,len(name)-5)
             loaded := read_record_file(state,id)

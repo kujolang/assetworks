@@ -74,6 +74,19 @@ check(!load_public_context("",trust_path,"")["ok"],"duplicate trust identities r
 write_file(trust_path,to_json(store),true)
 check(!dispatch("manifest",opts(flags))["ok"],"private key cannot sign under a mismatching public identity")
 check(!dispatch("validate",opts(["--state",state,"--trust-store",trust_path,"--key-file",private_path]))["ok"],"conflicting public and HMAC authority refused")
+signed_backup := root+"/signed-backup"; signed_restore := root+"/signed-restore"
+backup_result := dispatch("backup",opts(["--state",state,"--output",signed_backup,"--trust-store",trust_path]))
+if !backup_result["ok"] { eprint(to_json(backup_result)) }
+check(backup_result["ok"],"public-only authority verifies backup of rotated manifests")
+if backup_result["ok"] {
+    delete_file(private_path)
+    restored := dispatch("restore",opts(["--state",signed_backup,"--output",signed_restore,"--backup-sha256",backup_result["value"]["backup_sha256"],"--trust-store",trust_path]))
+    if !restored["ok"] { eprint(to_json(restored)) }
+    check(restored["ok"],"signed restore requires no private key")
+    check(dispatch("validate",opts(["--state",signed_restore,"--id","manifest-public","--artifact-root",signed_restore+"/artifacts","--trust-store",trust_path]))["ok"],"restored manifest retains public signature")
+    write_file(trust_path,to_json(revoked),true)
+    check(!dispatch("restore",opts(["--state",signed_backup,"--output",root+"/revoked-restore","--backup-sha256",backup_result["value"]["backup_sha256"],"--trust-store",trust_path]))["ok"] && !file_exists(root+"/revoked-restore"),"revoked signing authority prevents restored publication")
+}
 cleanup_tree(root)
 print(to_string(passed)+" passed; "+to_string(failed)+" failed")
 if failed>0 { exit(1) }

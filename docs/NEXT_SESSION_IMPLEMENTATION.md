@@ -22,8 +22,11 @@ Completion requires all six items, updated user documentation, regression gates,
 
 All six items remain in scope. No final release or overall completion is claimed.
 
-- Media expansion implemented in `206b52b`: JPEG, WebP and FLAC encode/decode, odd image dimensions, codec allowlists, original CC0 derivative fixtures and 33 adapter assertions. Platform CI verification remains pending.
-- Public-key policy implemented in `42fbcc9`: explicit RSA trust stores, domain-separated signatures binding identity and public-key fingerprint, active/retired/revoked rotation, validity windows, downgrade refusal and 25 new assertions. Legacy HMAC checks still pass. Platform CI verification remains pending.
+- Media expansion implemented in `206b52b`: JPEG, WebP and FLAC encode/decode, odd image dimensions, codec allowlists, original CC0 derivative fixtures and 33 adapter assertions. The 235-assertion format/signature matrix passed on all three platforms in run 35776897250 at dcf8282.
+- Public-key policy implemented in `42fbcc9`: explicit RSA trust stores, domain-separated signatures binding identity and public-key fingerprint, active/retired/revoked rotation, validity windows, downgrade refusal and 25 new assertions. Legacy HMAC checks still pass. The 235-assertion format/signature matrix passed on all three platforms in run 35776897250 at dcf8282.
 - The full local gate passes 235 assertions, both contention scenarios and remaining checks using the pinned-capable debug runtime. Log: `/private/tmp/assetworks-next-formats-auth-gate.log` (local evidence, not a shipped artifact).
 - The instructed older sibling `kujo/target/release/kujo run tests/test.kujo` fails at doctor; it does not supply the pinned preview contract. The release/install item must resolve this runtime gap rather than claiming that binary passed.
-- Tagged releases, large-state layout/migration, isolated execution and backup/restore are not yet implemented.
+- Confined streaming copy is committed in runtime `66b9e3f`: 19 native boundary tests and the dual-runtime read/write capability test pass locally. Runtime CI is still running.
+- Sharded layout and out-of-place legacy migration/rebuild pass 46 focused assertions. The 100,001-entry local benchmark is running; migration's per-file durability cost must be reported honestly.
+- Backup/restore passes a 15-assertion whole-volume-loss/tamper drill plus four public-signature restore assertions, including revoked-key refusal. The local regression gate passed 300 assertions and both contention checks before the subsequent isolation integration.
+- Container isolation is being verified against a locally built immutable image. Tagged releases and installed-artifact verification remain outstanding.

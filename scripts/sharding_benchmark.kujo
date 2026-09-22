@@ -1,0 +1,33 @@
+from src.filesystem import confined_read, collection_path, directory_page, page_cursor
+from src.migration import migrate_state
+from tests.support import test_root, cleanup_tree
+arguments := args()
+count := 100001
+if len(arguments)>0 { count = to_int(arguments[0]) }
+if count<100001 || count>1000000 { throw("count must be 100001..1000000") }
+root := test_root("sharding-benchmark"); source := root+"/flat"; target := root+"/sharded"
+create_dir(source+"/records")
+write_file(source+"/metadata.json",to_json({"schema_version":"1.0.0","tool":"assetworks","contract_version":"1.0.0"}),false)
+for index in range(0,count) { write_file(source+"/records/plan-"+to_string(1000000+index)+".json",to_string(index),false) }
+if directory_page(source+"/records","",1000)["ok"] { throw("legacy scan ceiling must still apply") }
+start := current_timestamp(); migrated := migrate_state(source,target); migration_ms := current_timestamp()-start
+if !migrated["ok"] { eprint(to_json(migrated)); throw("migration failed") }
+start = current_timestamp(); first := directory_page(target+"/records","",1000); first_ms := current_timestamp()-start
+if !first["ok"] || len(first["names"])==0 || first["scanned"]>=count { throw("sharded first page must avoid scanning the whole collection") }
+mut after := ""; mut done := false; mut observed := 0; mut pages := 0
+start = current_timestamp()
+while !done {
+    page := directory_page(target+"/records",after,1000)
+    if !page["ok"] { throw(page["error"]) }
+    for name in page["names"] {
+        expected := to_string(to_int(substring(name,5,len(name)-5))-1000000)
+        if confined_read(collection_path(target+"/records",name),32)!=expected { throw("migrated byte drift") }
+        observed = observed+1
+    }
+    pages = pages+1; done = !page["truncated"]
+    if !done { next := page_cursor(page,page["names"][len(page["names"])-1]); if next==after { throw("cursor stuck") }; after=next }
+}
+if observed!=count { throw("migration omitted or duplicated entries") }
+usage := process_usage()
+print(to_json({"verified":true,"entries":count,"migration_ms":migration_ms,"first_page_ms":first_ms,"first_page_entries_scanned":first["scanned"],"verify_all_ms":current_timestamp()-start,"pages":pages,"peak_rss_bytes":usage["peak_rss_bytes"],"cpu_seconds":usage["cpu_seconds"],"runtime_profile":"caller-supplied","scope":"storage layout and exact bytes; synthetic records are not domain-valid"}))
+cleanup_tree(root)

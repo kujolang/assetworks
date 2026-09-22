@@ -13,19 +13,21 @@ Plan media work, record transformation intents, bind files to manifests and acce
 
 Records have stable IDs, actors, timestamps and append-only creation events. Storage uses immutable transaction journals and atomic no-replace writes. Validation reconciles exact record bytes with their creation events and detects orphan events. [Recovery](docs/RECOVERY.md) replays interrupted transactions without overwriting existing evidence. This remains an operator-controlled local tool, not a hosted multi-tenant service.
 
-Optional [shared-key HMAC authentication](docs/AUTHENTICATION.md) signs complete manifest records. [Confined streaming checksums](docs/LARGE_FILES.md) support explicitly bounded attachments up to 4 GiB. The adapter has a separate 8 MiB input/output limit.
+Optional [RSA public-key signatures or shared-key HMAC authentication](docs/AUTHENTICATION.md) sign complete manifest records. Public verification uses an explicit rotation/revocation trust store. [Confined streaming checksums](docs/LARGE_FILES.md) support explicitly bounded attachments up to 4 GiB. The adapter has a separate 8 MiB input/output limit.
+
+[Sharded collections and migration](docs/STORAGE_LAYOUT.md) support larger local state without a mutable index. [Backup and restore](docs/BACKUP_RESTORE.md) preserve immutable signatures and referenced media across loss of the original volume.
 
 See the [blocker follow-up and next-session opportunities](docs/REVIEW_FOLLOWUP_2026-09-22.md), following the [September review](docs/REVIEW_2026-09-22.md). The [previous review](docs/PRODUCTION_READINESS_REVIEW.md) and [August checklist](docs/NEXT_SESSION.md) are historical.
 
 ## Quick install
 
-This development version requires Kujo 1.4.0 with confined filesystem primitives. CI pins source revision `4e987a4e10d4b45621805e5acb420de4c9824b90`; use that build for reproducibility rather than assuming every binary labeled 1.4.0 includes these preview APIs. The [full Linux/macOS/Windows suite](https://github.com/kujolang/assetworks/actions/runs/35771712287) passes at `f57791d`, including 189 assertions per platform, real media adapters and concurrency checks. See the [blocker follow-up](docs/REVIEW_FOLLOWUP_2026-09-22.md) for limits, benchmarks and next-session opportunities.
+This development version requires Kujo 1.4.0 with confined filesystem primitives. CI pins source revision `66b9e3f787b24de875abbf939bc9e278b7a3e22e`; use that build for reproducibility rather than assuming every binary labeled 1.4.0 includes these preview APIs. The [format/signature Linux/macOS/Windows suite](https://github.com/kujolang/assetworks/actions/runs/35776897250) passes at `dcf8282`, including 235 assertions per platform, real media adapters and concurrency checks. See the [blocker follow-up](docs/REVIEW_FOLLOWUP_2026-09-22.md) for limits, benchmarks and next-session opportunities.
 
-Build the pinned runtime in a separate checkout (Rust and the platform dependencies described in [Kujo's source-build guide](https://github.com/kujolang/kujo/blob/4e987a4e10d4b45621805e5acb420de4c9824b90/README.md#build-and-test-from-source) are required):
+Build the pinned runtime in a separate checkout (Rust and the platform dependencies described in [Kujo's source-build guide](https://github.com/kujolang/kujo/blob/66b9e3f787b24de875abbf939bc9e278b7a3e22e/README.md#build-and-test-from-source) are required):
 
 ```bash
 git clone https://github.com/kujolang/kujo.git assetworks-runtime
-git -C assetworks-runtime checkout 4e987a4e10d4b45621805e5acb420de4c9824b90
+git -C assetworks-runtime checkout 66b9e3f787b24de875abbf939bc9e278b7a3e22e
 cargo build --release --locked --manifest-path assetworks-runtime/Cargo.toml
 export KUJO_BIN="$PWD/assetworks-runtime/target/release/kujo"
 ```
@@ -55,7 +57,7 @@ State defaults to `.assetworks/`. Use operator-controlled directories and canoni
 
 Lists and exports inspect at most 1,000 JSON filenames per page and enforce aggregate byte budgets. Resume using the returned `next_after`, even on an empty filtered page. [Whole-state validation has three independent resumable cursors](docs/PAGINATION.md) and never reports an unfinished audit as complete. Doctor remains a bounded first-page diagnostic. Exports into the active state directory are refused even with `--force`. Case-equivalent state names are conservatively reserved across platforms.
 
-Validation checks attached-file drift, exact record/event checksums, orphan events and transaction completeness. Unsigned evidence cannot authenticate an operator who can rewrite all state files. HMAC verification adds authenticity only when the shared key remains protected separately from state. `history` lists creation events and accepts its returned event cursor with `--after`.
+Validation checks attached-file drift, exact record/event checksums, orphan events and transaction completeness. Unsigned evidence cannot authenticate an operator who can rewrite all state files. HMAC verification adds authenticity only when the shared key remains protected separately from state; public signatures require separately trusted public keys and an explicit revocation policy. `history` lists creation events and accepts its returned event cursor with `--after`.
 
 For a complete runnable plan → manifest → captions/transcript → validate → export example, see [the licensed media walkthrough](examples/README.md).
 

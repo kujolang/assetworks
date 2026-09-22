@@ -1,0 +1,53 @@
+from src.core import dispatch
+from src.args import parse_args
+from src.common import get
+from src.filesystem import confined_read
+from src.storage import record_path
+from tests.support import test_root, cleanup_tree, make_link
+mut passed := 0; mut failed := 0
+func check(ok,label) { if ok { passed=passed+1 } else { failed=failed+1; eprint("FAIL: "+label) } }
+func opts(values) { return parse_args(values,["json","force","dry-run"]) }
+root := test_root("disaster"); create_dir(root)
+source := root+"/volume/state"; media := root+"/volume/original.dat"; backup := root+"/backup"; restored := root+"/restored"
+create_dir(root+"/volume"); write_file(media,"original asset bytes",false)
+created := dispatch("plan",opts(["--state",source,"--input","fixtures/core.json","--path",media,"--actor","recovery-test","--id","plan-original"]))
+check(created["ok"],"source record with artifact")
+original := confined_read(record_path(source,"plan-original"),1048576)
+saved := dispatch("backup",opts(["--state",source,"--output",backup]))
+if !saved["ok"] { eprint(to_json(saved)) }
+check(saved["ok"],"bounded backup validates all collections and media")
+if saved["ok"] {
+    receipt := saved["value"]["backup_sha256"]
+    check(!dispatch("backup",opts(["--state",source,"--output",backup]))["ok"],"backup never replaces existing backup")
+    check(!dispatch("backup",opts(["--state",source,"--output",source+"/nested"]))["ok"],"backup rejects source descendants")
+    check(!dispatch("restore",opts(["--state",backup,"--output",restored,"--backup-sha256",repeat("0",64)]))["ok"] && !file_exists(restored),"wrong external receipt cannot publish state")
+    // Destroy the entire original volume, including all external media.
+    cleanup_tree(root+"/volume")
+    check(!file_exists(media) && !file_exists(source),"whole source volume lost")
+    result := dispatch("restore",opts(["--state",backup,"--output",restored,"--backup-sha256",receipt]))
+    if !result["ok"] { eprint(to_json(result)) }
+    check(result["ok"],"restore after complete volume loss")
+    if result["ok"] {
+        check(confined_read(record_path(restored,"plan-original"),1048576)==original,"immutable record bytes preserved")
+        check(dispatch("validate",opts(["--state",restored,"--id","plan-original","--artifact-root",restored+"/artifacts"]))["ok"],"restored media independently verifies")
+        check(!dispatch("validate",opts(["--state",restored,"--id","plan-original"]))["ok"],"original missing media path is not silently trusted")
+        check(!dispatch("restore",opts(["--state",backup,"--output",restored,"--backup-sha256",receipt]))["ok"],"restore never replaces existing state")
+        resaved := dispatch("backup",opts(["--state",restored,"--artifact-root",restored+"/artifacts","--output",root+"/second-backup"]))
+        check(resaved["ok"],"restored state can be backed up again")
+    }
+    artifact := created["value"]["record"]["artifact"]
+    artifact_path := backup+"/artifacts/"+artifact["sha256"]+".blob"
+    write_file(artifact_path,"tampered",true)
+    rejected := root+"/rejected"
+    check(!dispatch("restore",opts(["--state",backup,"--output",rejected,"--backup-sha256",receipt]))["ok"] && !file_exists(rejected),"tampered artifact never publishes destination")
+    write_file(artifact_path,"original asset bytes",true)
+    page := backup+"/inventory/0.json"; page_text := read_file(page)
+    write_file(page,"{}",true)
+    check(!dispatch("restore",opts(["--state",backup,"--output",rejected,"--backup-sha256",receipt]))["ok"] && !file_exists(rejected),"inventory tampering never publishes destination")
+    write_file(page,page_text,true)
+    delete_file(artifact_path); make_link("fixtures/core.json",artifact_path,false)
+    check(!dispatch("restore",opts(["--state",backup,"--output",rejected,"--backup-sha256",receipt]))["ok"] && !file_exists(rejected),"linked artifact fails closed")
+}
+cleanup_tree(root)
+print(to_string(passed)+" passed; "+to_string(failed)+" failed")
+if failed>0 { exit(1) }

@@ -1,0 +1,55 @@
+from src.filesystem import confined_read, confined_write, confined_copy, collection_sharded, collection_path, directory_page, page_cursor, is_link
+from src.storage import protected_output, validate_state_path
+from src.common import get
+
+// Out-of-place rebuild: no mutable lookup index, and no changes to the source.
+// The operator must stop writers for the duration; directory pages are not a
+// cross-file snapshot. A failed destination remains inspectable, never active.
+export func migrate_state(source, destination) {
+    if type(destination) != "string" || destination == "" { return {"ok":false,"code":"migration_output","error":"migrate requires --output naming a new directory"} }
+    problem := protected_output(source,destination)
+    if problem != "" { return {"ok":false,"code":"unsafe_output","error":problem} }
+    if file_exists(destination) || is_link(destination) { return {"ok":false,"code":"output_exists","error":"migration never reuses or replaces a destination"} }
+    mut count := 0; mut total_bytes := 0
+    try {
+        // Exclusive marker reserves the new destination and records incomplete work.
+        confined_write(destination+"/.migration-in-progress","AssetWorks sharded rebuild\n",false)
+        for collection in ["records","history","transactions"] {
+            confined_write(destination+"/"+collection+"/.assetworks-shards","sha256-256-v1\n",false)
+            input := source+"/"+collection
+            sharded := collection_sharded(input)
+            mut after := ""; mut done := false
+            while !done {
+                mut names := []; mut next := after
+                if sharded {
+                    page := directory_page(input,after,1000)
+                    if !page["ok"] { throw(page["error"]) }
+                    names = page["names"]; done = !page["truncated"]
+                    if len(names)>0 { next = page_cursor(page,names[len(names)-1]) }
+                } else {
+                    problem = validate_state_path(input); if problem != "" { throw(problem) }
+                    if !file_exists(input) { done = true }
+                    else {
+                        // Legacy collections above 100k require the streaming native
+                        // filename iterator, which retains only limit+1 names.
+                        page := list_dir_page(input,after,1000,".json")
+                        names = page["entries"]; next = page["next_after"]; done = !page["truncated"]
+                    }
+                }
+                for name in names {
+                    if type(name)!="string" || !regex_match(name,"^[a-z0-9][a-z0-9-]{1,127}\\.json$") { throw("unsafe collection filename") }
+                    receipt := confined_copy(collection_path(input,name),collection_path(destination+"/"+collection,name),4194304)
+                    count = count+1; total_bytes = total_bytes+receipt["bytes"]
+                }
+                if !done && next == after { throw("migration cursor did not advance") }
+                after = next
+            }
+        }
+        confined_copy(source+"/metadata.json",destination+"/metadata.json",65536)
+        for collection in ["records","history","locks"] { confined_write(destination+"/"+collection+"/.assetworks-directory","AssetWorks managed directory\n",false) }
+        receipt := {"schema_version":"1.0.0","layout":"sharded-v1","files":count,"bytes":total_bytes,"source":source}
+        confined_write(destination+"/migration.json",to_json(receipt)+"\n",false)
+        delete_file(destination+"/.migration-in-progress")
+        return {"ok":true,"value":receipt}
+    } except error { return {"ok":false,"code":"migration_failed","error":"migration failed; source unchanged, inspect incomplete destination: "+to_string(error)} }
+}
