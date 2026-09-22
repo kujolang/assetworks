@@ -1,0 +1,88 @@
+from src.common import get, has, canonical_json, parse_object, safe_id, valid_timestamp
+from src.filesystem import confined_read
+
+func failure(code, message) { return {"ok":false,"code":code,"error":message} }
+func exact_fields(value, fields) {
+    if type(value) != "dict" { return false }
+    for field in keys(value) { if !has(fields,field) { return false } }
+    return true
+}
+
+export func load_public_context(private_path, trust_path, key_id) {
+    if trust_path == "" { return failure("trust_store_required","public-key operations require an explicit trust store") }
+    mut text := ""
+    try { text = confined_read(trust_path,262144) } except error { return failure("invalid_trust_store","trust store must be a confined file within 256 KiB") }
+    parsed := parse_object(text,"trust store"); if !parsed["ok"] { return parsed }
+    store := parsed["value"]
+    if !exact_fields(store,["schema_version","keys"]) || get(store,"schema_version","") != "1.0.0" || type(get(store,"keys",null)) != "array" || len(store["keys"]) < 1 || len(store["keys"]) > 32 { return failure("invalid_trust_store","trust store requires schema 1.0.0 and 1..32 keys") }
+    trusted := {}
+    for entry in store["keys"] {
+        if !exact_fields(entry,["id","public_key","status","not_before","not_after"]) { return failure("invalid_trust_store","unknown trust-key field") }
+        id := get(entry,"id",""); pem := get(entry,"public_key","")
+        if !safe_id(id) || has_key(trusted,id) == 1 || type(pem) != "string" || byte_length(pem)>8192 || !has(["active","retired","revoked"],get(entry,"status","")) { return failure("invalid_trust_store","invalid or duplicate trust-key identity") }
+        for field in ["not_before","not_after"] {
+            date := get(entry,field,"")
+            if !valid_timestamp(date) || len(date)!=20 { return failure("invalid_trust_store","trust windows require whole-second UTC timestamps") }
+        }
+        if entry["not_before"] >= entry["not_after"] { return failure("invalid_trust_store","trust window must have positive duration") }
+        mut info := null
+        try { info = rsa_public_key_info(pem) } except error { return failure("invalid_trust_store","trust key must be RSA public PEM") }
+        if !has([2048,4096],info["bits"]) { return failure("invalid_trust_store","RSA keys must be 2048 or 4096 bits") }
+        entry["public_key"] = info["pem"]; entry["sha256"] = info["sha256"]; entry["bits"] = info["bits"]
+        trusted[id] = entry
+    }
+    private_key := ""
+    if private_path != "" {
+        if !safe_id(key_id) || has_key(trusted,key_id)!=1 || trusted[key_id]["status"]!="active" { return failure("signing_key_untrusted","signing requires an active key-id in the trust store") }
+        try { private_key = confined_read(private_path,8192) } except error { return failure("signing_key_invalid","private key must be a confined PEM file within 8 KiB") }
+    } else if key_id != "" { return failure("signing_key_required","key-id requires a signing-key file") }
+    return {"ok":true,"value":{"mode":"public","keys":trusted,"private_key":private_key,"key_id":key_id}}
+}
+
+func signed_message(record, id, fingerprint) {
+    unsigned := {}
+    for field in keys(record) { if field != "authentication" { unsigned[field]=record[field] } }
+    return "assetworks-manifest/rsa-sha256/v1\n"+id+"\n"+fingerprint+"\n"+canonical_json(unsigned)
+}
+
+func authorized_key(record, context, id, signing) {
+    if type(id)!="string" || has_key(context["keys"],id)!=1 { return failure("unknown_signing_key","key-id is not trusted") }
+    key := context["keys"][id]
+    if key["status"]=="revoked" || (signing && key["status"]!="active") { return failure("signing_key_revoked","key is revoked or not active for signing") }
+    date := get(record,"created_at","")
+    if !valid_timestamp(date) { return failure("signature_time_invalid","record timestamp is invalid") }
+    second := substring(date,0,19)+"Z"
+    if second < key["not_before"] || second >= key["not_after"] { return failure("signature_time_invalid","record timestamp is outside the trusted key window") }
+    return {"ok":true,"value":key}
+}
+
+export func sign_public_record(record, context) {
+    if get(record,"command","")!="manifest" || context["private_key"]=="" { return failure("signing_key_required","public manifest signing requires a private signing-key") }
+    id := context["key_id"]; allowed := authorized_key(record,context,id,true); if !allowed["ok"] { return allowed }
+    key := allowed["value"]; message := signed_message(record,id,key["sha256"])
+    mut signature := ""
+    try {
+        signature = rsa_sign(message,context["private_key"])
+        if !rsa_verify(message,signature,key["public_key"]) { return failure("signing_key_mismatch","private key does not match trusted public key") }
+    } except error { return failure("signing_key_invalid","private key could not produce a valid RSA signature") }
+    return {"ok":true,"value":{"algorithm":"rsa-sha256","key_id":id,"key_sha256":key["sha256"],"signature":signature}}
+}
+
+export func verify_public_record(record, context) {
+    auth := get(record,"authentication",null)
+    if get(record,"command","")!="manifest" {
+        if has_key(record,"authentication")==1 { return failure("invalid_signature","public signatures are supported only on manifests") }
+        return {"ok":true}
+    }
+    if !exact_fields(auth,["algorithm","key_id","key_sha256","signature"]) || get(auth,"algorithm","")!="rsa-sha256" { return failure("public_signature_required","trust-store verification requires RSA manifest authentication; unsigned/HMAC downgrade refused") }
+    allowed := authorized_key(record,context,get(auth,"key_id",""),false); if !allowed["ok"] { return allowed }
+    key := allowed["value"]; signature := get(auth,"signature",null)
+    if get(auth,"key_sha256","")!=key["sha256"] || type(signature)!="string" || byte_length(signature)>1024 { return failure("invalid_signature","signature fingerprint or encoding is invalid") }
+    encoding := "^[A-Za-z0-9+/]{341}[AQgw]==$"
+    if key["bits"]==4096 { encoding = "^[A-Za-z0-9+/]{682}[AEIMQUYcgkosw048]=$" }
+    if !regex_match(signature,encoding) { return failure("invalid_signature","signature must be canonical base64 of the trusted RSA key size") }
+    mut valid := false
+    try { valid = rsa_verify(signed_message(record,auth["key_id"],key["sha256"]),signature,key["public_key"]) } except error { return failure("signature_mismatch","public manifest signature could not be verified") }
+    if !valid { return failure("signature_mismatch","public manifest signature does not match") }
+    return {"ok":true}
+}

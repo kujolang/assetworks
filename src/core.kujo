@@ -1,4 +1,5 @@
-from src.authentication import read_key_file, authenticate_record, verify_record_authentication
+from src.authentication import read_auth_options, authenticate_record, verify_record_authentication
+from src.public_authentication import sign_public_record
 from src.adapters import load_adapter, execute_transform
 from src.filesystem import confined_read, confined_write, confined_digest, safe_page_cursor
 from src.audit import reconcile_record, list_history, safe_event_id
@@ -74,8 +75,8 @@ func artifact_metadata(path, maximum) {
 }
 
 func create_record(command, parsed, config, p) {
-    key_result := read_key_file(flag(parsed, "key-file", "")); if !key_result["ok"] { return key_result }
-    if key_result["value"] != "" && command != "manifest" { return {"ok": false, "code": "signature_command", "error": "key-file creation is supported only for manifests"} }
+    key_result := read_auth_options(flag(parsed,"key-file",""),flag(parsed,"signing-key",""),flag(parsed,"trust-store",""),flag(parsed,"key-id","")); if !key_result["ok"] { return key_result }
+    if key_result["value"] != "" && command != "manifest" { return {"ok": false, "code": "signature_command", "error": "manifest authentication options apply only to manifest creation"} }
     state := setting(parsed, config, "state", p["default_state"])
     state_error := validate_state_path(state)
     if state_error != "" { return {"ok": false, "code": "unsafe_state", "error": state_error} }
@@ -113,7 +114,9 @@ func create_record(command, parsed, config, p) {
     record := {"schema_version": "1.0.0", "tool_version": p["version"], "contract_version": p["contract_version"], "id": id, "record_type": record_type(command), "command": command, "actor": actor, "created_at": timestamp, "provenance": get(payload, "provenance", []), "payload": payload}
     if type(artifact["value"]) == "dict" { record["artifact"] = artifact["value"] }
     if type(execution_receipt) == "dict" { record["execution_receipt"] = execution_receipt }
-    if key_result["value"] != "" { record["authentication"] = authenticate_record(record, key_result["value"]) }
+    if type(key_result["value"])=="dict" {
+        signed := sign_public_record(record,key_result["value"]); if !signed["ok"] { return signed }; record["authentication"] = signed["value"]
+    } else if key_result["value"] != "" { record["authentication"] = authenticate_record(record, key_result["value"]) }
     if flag(parsed, "dry-run", false) == true { return {"ok": true, "value": {"dry_run": true, "record": record}} }
     initialized := initialize(state, {"schema_version": "1.0.0", "tool": p["slug"], "tool_version": p["version"], "contract_version": p["contract_version"], "created_at": now_utc()})
     if !initialized["ok"] { return initialized }
@@ -221,7 +224,7 @@ export func dispatch(command, parsed) {
         return {"ok": true, "value": {"left_id": left_id, "right_id": right_id, "records_equal": canonical_json(left["value"]["payload"]) == canonical_json(right["value"]["payload"]), "left_record_sha256": left["checksum"], "right_record_sha256": right["checksum"], "left_artifact_sha256": get(left_artifact, "sha256", null), "right_artifact_sha256": get(right_artifact, "sha256", null), "artifact_equal": get(left_artifact, "sha256", null) == get(right_artifact, "sha256", null)}}
     }
     if has(p["validate_commands"], command) {
-        key_result := read_key_file(flag(parsed, "key-file", "")); if !key_result["ok"] { return key_result }
+        key_result := read_auth_options(flag(parsed,"key-file",""),flag(parsed,"signing-key",""),flag(parsed,"trust-store",""),flag(parsed,"key-id","")); if !key_result["ok"] { return key_result }
         id := flag(parsed, "id", "")
         if id != "" { loaded := load_record(state, id); if !loaded["ok"] { return loaded }; checked := validate_record(loaded["value"], p, key_result["value"]); if !checked["ok"] { return checked }; checked = reconcile_record(state, loaded["value"], loaded["checksum"]); if !checked["ok"] { return checked }; return {"ok": true, "value": {"valid": true, "id": id, "checksum": loaded["checksum"]}} }
         limit_result := bounded_int(setting(parsed, config, "limit", 1000), 1000, 1, 1000); if !limit_result["ok"] { return limit_result }
@@ -249,7 +252,7 @@ export func dispatch(command, parsed) {
 }
 
 func usage(p) {
-    return p["name"] + " " + p["version"] + "\n\n" + p["description"] + "\n\nCommands:\n  " + join(p["commands"], "\n  ") + "\n\nCommon flags:\n  --state PATH       Local state directory\n  --config FILE      JSON defaults for state, actor, and limit\n  --input FILE       JSON command payload (1 MiB maximum)\n  --actor ID         Required for mutations\n  --timestamp UTC    Deterministic RFC 3339 timestamp\n  --id ID            Explicit stable record ID\n  --path FILE        Bounded artifact attachment\n  --max-artifact-bytes N  1..4294967296; default 64 MiB\n  --adapter-config FILE  Explicit offline FFmpeg configuration\n  --key-file FILE    Sign manifests / require authentication\n  --type TYPE        Record filter for list/export\n  --after CURSOR     Record/filename pagination cursor\n  --history-after CURSOR      Resume validation history page\n  --transaction-after CURSOR  Resume validation journal page\n  --limit N          1..1000 JSON filenames (also byte bounded)\n  --output FILE      Atomic JSON export\n  --force            Replace only an explicitly named safe output\n  --dry-run          Validate without writing\n  --json             Stable output envelope"
+    return p["name"] + " " + p["version"] + "\n\n" + p["description"] + "\n\nCommands:\n  " + join(p["commands"], "\n  ") + "\n\nCommon flags:\n  --state PATH       Local state directory\n  --config FILE      JSON defaults for state, actor, and limit\n  --input FILE       JSON command payload (1 MiB maximum)\n  --actor ID         Required for mutations\n  --timestamp UTC    Deterministic RFC 3339 timestamp\n  --id ID            Explicit stable record ID\n  --path FILE        Bounded artifact attachment\n  --max-artifact-bytes N  1..4294967296; default 64 MiB\n  --adapter-config FILE  Explicit offline FFmpeg configuration\n  --key-file FILE    HMAC sign / verify manifests\n  --signing-key FILE RSA private key for manifests\n  --trust-store FILE Explicit public-key trust and rotation policy\n  --key-id ID        Active trusted signing identity\n  --type TYPE        Record filter for list/export\n  --after CURSOR     Record/filename pagination cursor\n  --history-after CURSOR      Resume validation history page\n  --transaction-after CURSOR  Resume validation journal page\n  --limit N          1..1000 JSON filenames (also byte bounded)\n  --output FILE      Atomic JSON export\n  --force            Replace only an explicitly named safe output\n  --dry-run          Validate without writing\n  --json             Stable output envelope"
 }
 
 func usage_error(message, argv, p) {
@@ -264,7 +267,7 @@ export func main(argv) {
     if !has(p["commands"], command) { return usage_error("unknown command: " + command, argv, p) }
     parsed := parse_args(command_tokens(argv, command), ["json", "dry-run", "force"])
     if len(parsed["errors"]) > 0 { return usage_error(parsed["errors"][0], argv, p) }
-    allowed := ["state", "config", "input", "id", "other-id", "actor", "timestamp", "path", "type", "after", "history-after", "transaction-after", "limit", "output", "adapter-config", "key-file", "max-artifact-bytes", "json", "dry-run", "force"]
+    allowed := ["state", "config", "input", "id", "other-id", "actor", "timestamp", "path", "type", "after", "history-after", "transaction-after", "limit", "output", "adapter-config", "key-file", "signing-key", "trust-store", "key-id", "max-artifact-bytes", "json", "dry-run", "force"]
     for name in keys(parsed["flags"]) { if !has(allowed, name) { return usage_error("unknown flag --" + name, argv, p) } }
     if len(parsed["positionals"]) > 0 { return usage_error("unexpected positional argument: " + parsed["positionals"][0], argv, p) }
     mut result := {"ok": false, "code": "operation_failed", "error": "operation could not be completed safely"}

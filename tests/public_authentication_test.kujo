@@ -1,0 +1,79 @@
+from src.core import dispatch
+from src.args import parse_args
+from src.public_authentication import load_public_context, verify_public_record
+from src.filesystem import ensure_managed_dir
+from tests.support import test_root, cleanup_tree
+mut passed := 0; mut failed := 0
+func check(ok,label) { if ok { passed=passed+1 } else { failed=failed+1; eprint("FAIL: "+label) } }
+func opts(values) { return parse_args(values,["json","dry-run","force"]) }
+func clone(value) { return parse_json(to_json(value)) }
+func change_auth(record, field, value) {
+    changed := clone(record); auth := changed["authentication"]; auth[field]=value; changed["authentication"]=auth; return changed
+}
+func change_key(store, index, field, value) {
+    changed := clone(store); entries := changed["keys"]; entry := entries[index]; entry[field]=value; entries[index]=entry; changed["keys"]=entries; return changed
+}
+root := test_root("public-auth"); state := root+"/state"
+key_a := rsa_generate_keypair(2048); key_b := rsa_generate_keypair(2048)
+ensure_managed_dir(root)
+private_path := root+"/private.pem"; trust_path := root+"/trust.json"; payload_path := root+"/manifest.json"
+write_file(private_path,key_a["private"],true)
+entry_a := {"id":"publisher-old","public_key":key_a["public"],"status":"active","not_before":"2026-01-01T00:00:00Z","not_after":"2027-01-01T00:00:00Z"}
+entry_b := {"id":"publisher-new","public_key":key_b["public"],"status":"active","not_before":"2026-09-01T00:00:00Z","not_after":"2028-01-01T00:00:00Z"}
+store := {"schema_version":"1.0.0","keys":[entry_a,entry_b]}
+write_file(trust_path,to_json(store),true)
+write_file(payload_path,to_json({"schema_version":"1.0.0","asset_id":"test","media_type":"image/png","rights_reference":"CC0-1.0","accessibility_status":"described"}),true)
+flags := ["--state",state,"--actor","publisher","--input",payload_path,"--path",path_absolute("fixtures/media/input.png"),"--timestamp","2026-09-22T12:00:00.123Z","--id","manifest-public","--signing-key",private_path,"--key-id","publisher-old","--trust-store",trust_path]
+signed := dispatch("manifest",opts(flags))
+check(signed["ok"],"manifest signed with explicit private key and trusted identity")
+if !signed["ok"] { eprint(to_json(signed)); cleanup_tree(root); exit(1) }
+record := signed["value"]["record"]
+check(json_schema_validate(record,parse_json(read_file("schemas/record.schema.json")))["valid"],"public signature conforms to published record schema")
+check(!dispatch("validate",opts(["--state",state]))["ok"],"RSA signature cannot validate without explicit trust")
+check(dispatch("validate",opts(["--state",state,"--trust-store",trust_path]))["ok"],"public-only verification succeeds")
+check(contains(to_json(signed),key_a["private"])==0 && contains(read_file(state+"/transactions/manifest-public.json"),key_a["private"])==0,"private material is absent from record and journal")
+context := load_public_context("",trust_path,"")["value"]
+changed := clone(record); changed["actor"]="attacker"
+check(!verify_public_record(changed,context)["ok"],"signature binds the whole immutable record")
+changed=change_auth(record,"key_id","publisher-new")
+check(!verify_public_record(changed,context)["ok"],"changing key-id cannot redirect signature authority")
+changed=clone(record); changed["authentication"]={"algorithm":"hmac-sha256","signature":repeat("0",64)}
+check(!verify_public_record(changed,context)["ok"],"public trust policy refuses HMAC downgrade")
+changed=clone(record); changed["authentication"]=null
+check(!verify_public_record(changed,context)["ok"],"public trust policy refuses unsigned downgrade")
+changed=change_auth(record,"signature","not-base64")
+check(!verify_public_record(changed,context)["ok"],"malformed signature returns controlled rejection")
+changed=change_auth(record,"extra","ignored?")
+check(!verify_public_record(changed,context)["ok"],"unknown signature metadata rejected")
+alias := change_key(store,1,"public_key",key_a["public"]); write_file(trust_path,to_json(alias),true)
+alias_context := load_public_context("",trust_path,"")["value"]
+changed=change_auth(record,"key_id","publisher-new")
+check(!verify_public_record(changed,alias_context)["ok"],"signature binds key-id even when another identity has the same public key")
+bad_pem := change_key(store,0,"public_key","not a public key"); write_file(trust_path,to_json(bad_pem),true)
+check(!load_public_context("",trust_path,"")["ok"],"invalid public PEM fails without accepting a trust entry")
+write_file(trust_path,to_json(store),true)
+write_file(private_path,"not a private key",true)
+check(!dispatch("manifest",opts(flags))["ok"],"invalid private PEM cannot create a manifest")
+write_file(private_path,key_a["private"],true)
+wrong := change_key(store,0,"public_key",key_b["public"]); write_file(trust_path,to_json(wrong),true)
+check(!dispatch("validate",opts(["--state",state,"--trust-store",trust_path]))["ok"],"wrong trusted public key fails")
+rotated := change_key(store,0,"status","retired"); write_file(trust_path,to_json(rotated),true)
+check(dispatch("validate",opts(["--state",state,"--trust-store",trust_path]))["ok"],"retired key still verifies historical signatures")
+check(!dispatch("manifest",opts(flags))["ok"],"retired key cannot sign new records")
+write_file(private_path,key_b["private"],true)
+new_flags := ["--state",state,"--actor","publisher","--input",payload_path,"--path",path_absolute("fixtures/media/input.png"),"--timestamp","2026-09-22T12:00:00Z","--id","manifest-rotated","--signing-key",private_path,"--key-id","publisher-new","--trust-store",trust_path]
+check(dispatch("manifest",opts(new_flags))["ok"],"rotation signs with the new active identity")
+check(dispatch("validate",opts(["--state",state,"--trust-store",trust_path]))["ok"],"old and new public signatures verify under rotation policy")
+revoked := change_key(rotated,0,"status","revoked"); write_file(trust_path,to_json(revoked),true)
+check(!dispatch("validate",opts(["--state",state,"--id","manifest-public","--trust-store",trust_path]))["ok"],"revocation rejects previously valid historical signatures")
+check(dispatch("validate",opts(["--state",state,"--id","manifest-rotated","--trust-store",trust_path]))["ok"],"revoking old key preserves new identity")
+expired := change_key(store,0,"not_after","2026-09-22T12:00:00Z"); write_file(trust_path,to_json(expired),true)
+check(!dispatch("validate",opts(["--state",state,"--id","manifest-public","--trust-store",trust_path]))["ok"],"exclusive expiry rejects fractional timestamp in boundary second")
+duplicate := clone(store); duplicate["keys"]=[entry_a,entry_a]; write_file(trust_path,to_json(duplicate),true)
+check(!load_public_context("",trust_path,"")["ok"],"duplicate trust identities rejected")
+write_file(trust_path,to_json(store),true)
+check(!dispatch("manifest",opts(flags))["ok"],"private key cannot sign under a mismatching public identity")
+check(!dispatch("validate",opts(["--state",state,"--trust-store",trust_path,"--key-file",private_path]))["ok"],"conflicting public and HMAC authority refused")
+cleanup_tree(root)
+print(to_string(passed)+" passed; "+to_string(failed)+" failed")
+if failed>0 { exit(1) }

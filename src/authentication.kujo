@@ -1,5 +1,12 @@
 from src.common import get, canonical_json
 from src.filesystem import confined_read
+from src.public_authentication import load_public_context, verify_public_record
+
+export func read_auth_options(hmac_path, private_path, trust_path, key_id) {
+    if private_path=="" && trust_path=="" && key_id=="" { return read_key_file(hmac_path) }
+    if hmac_path!="" { return {"ok":false,"code":"conflicting_keys","error":"choose HMAC key-file or public-key options, not both"} }
+    return load_public_context(private_path,trust_path,key_id)
+}
 
 export func read_key_file(path) {
     if path == "" { return {"ok": true, "value": ""} }
@@ -21,6 +28,7 @@ export func authenticate_record(record, key) {
 }
 
 export func verify_record_authentication(record, key) {
+    if type(key)=="dict" { return verify_public_record(record,key) }
     authentication := get(record, "authentication", null)
     if type(authentication) == "null" {
         if has_key(record,"authentication") == 1 { return {"ok":false,"code":"invalid_signature","error":"authentication must be an object when present"} }
