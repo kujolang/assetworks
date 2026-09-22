@@ -49,7 +49,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Install FFmpeg on macOS
         if: runner.os == 'macOS'
-        run: brew list ffmpeg >/dev/null 2>&1 || brew install ffmpeg
+        run: brew list ffmpeg-full >/dev/null 2>&1 || brew install ffmpeg-full
       - name: Install FFmpeg on Windows
         if: runner.os == 'Windows'
         shell: pwsh
@@ -63,8 +63,13 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          echo "FFMPEG_BIN=$(command -v ffmpeg)" >> "$GITHUB_ENV"
-          echo "FFPROBE_BIN=$(command -v ffprobe)" >> "$GITHUB_ENV"
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            echo "FFMPEG_BIN=$(brew --prefix ffmpeg-full)/bin/ffmpeg" >> "$GITHUB_ENV"
+            echo "FFPROBE_BIN=$(brew --prefix ffmpeg-full)/bin/ffprobe" >> "$GITHUB_ENV"
+          else
+            echo "FFMPEG_BIN=$(command -v ffmpeg)" >> "$GITHUB_ENV"
+            echo "FFPROBE_BIN=$(command -v ffprobe)" >> "$GITHUB_ENV"
+          fi
       - name: Verify runtime boundary contracts
         if: steps.runtime-cache.outputs.cache-hit != 'true'
         shell: bash

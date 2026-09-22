@@ -52,3 +52,5 @@ FFMPEG_BIN=/absolute/ffmpeg FFPROBE_BIN=/absolute/ffprobe \
 ```
 
 The suite covers real image resizing, audio conversion, video output, JPEG/WebP/FLAC encoding and decoding from original CC0 fixtures and generated outputs, odd dimensions, digest verification, offline declarations, timeout failures, duplicate IDs and side-effect-free previews. Fixture derivation is recorded in `fixtures/media/LICENSE` and `scripts/generate_media_fixtures.kujo`.
+
+On macOS, use `brew install ffmpeg-full` and configure the canonical binaries under `$(brew --prefix ffmpeg-full)/bin`. The standard Homebrew FFmpeg package may omit the `libwebp` encoder; the [full formula](https://formulae.brew.sh/formula/ffmpeg-full) supplies WebP support. CI uses the full formula and exercises all six formats.
