@@ -10,7 +10,7 @@
 - Added explicit 256-shard storage, bounded pagination, exact-byte legacy migration and rebuild without a mutable index.
 - Added verified backups and atomic no-replace restore after complete volume loss, preserving signed records and content-addressed media up to 4 GiB per artifact.
 - Added confined streaming checksums, bounded directory scans, immutable transaction journals, crash recovery, exact audit reconciliation and aggregate page budgets.
-- Documented operating boundaries, trust policies, installation, storage and disaster-recovery procedures. Release verification remains pending until the acceptance checklist is complete.
+- Documented operating boundaries, trust policies, installation, storage and disaster-recovery procedures. Signed native releases and five-platform published-install checks passed; see the acceptance record for exact evidence and the separate npm authorization follow-up.
 
 - Made dry runs side-effect free and rejected impossible calendar dates and missing CLI values.
 - Fixed JSON version output, portable launcher resolution, and incomplete-validation reporting.
