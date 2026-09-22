@@ -11,11 +11,16 @@ cd "$ROOT"
 "$KUJO_RUNTIME" run tests/storage_test.kujo
 "$KUJO_RUNTIME" run tests/domain_test.kujo
 "$KUJO_RUNTIME" run tests/hardening_test.kujo
-bash scripts/contention_benchmark.sh
+"$KUJO_RUNTIME" run tests/review_test.kujo
+KUJO_BIN="$KUJO_RUNTIME" bash scripts/contention_benchmark.sh
 while IFS= read -r document; do "$KUJO_RUNTIME" run scripts/validate_json.kujo -- "$document"; done < <(find fixtures schemas -type f -name '*.json' -print | sort)
-tmp_state="$(mktemp -d)"; trap 'find "$tmp_state" -depth -delete' EXIT
+tmp_state="$(mktemp -d)"; tmp_state="$(cd "$tmp_state" && pwd -P)"; trap 'find "$tmp_state" -depth -delete' EXIT
 KUJO_BIN="$KUJO_RUNTIME" ./bin/assetworks --help >/dev/null
-KUJO_BIN="$KUJO_RUNTIME" ./bin/assetworks --version --json >/dev/null
+version_output="$(KUJO_BIN="$KUJO_RUNTIME" ./bin/assetworks --version --json)"
+[[ "$version_output" == *'"ok": true'* ]]
+if KUJO_BIN="$KUJO_RUNTIME" ./bin/assetworks --version --bogus >/dev/null 2>&1; then
+  printf 'validation failed: version accepted unknown flags.\n' >&2; exit 1
+fi
 KUJO_BIN="$KUJO_RUNTIME" ./bin/assetworks doctor --state "$tmp_state/state" --json >/dev/null
 if grep -REn --include='*.kujo' 'python3|node |\.py\b|\.mjs\b' src tests scripts assetworks.kujo kujo.toml; then
   printf 'assetworks validation failed: foreign runtime dependency reference found.\n' >&2; exit 1

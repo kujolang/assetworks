@@ -2,7 +2,7 @@ from src.core import dispatch
 from src.args import parse_args
 mut pass:=0;mut fail:=0
 func check(ok,label){if ok{pass=pass+1}else{fail=fail+1;eprint("FAIL: "+label)}}
-root:="/tmp/assetworks-domain-"+uuid_v4(); func opts(v){return parse_args(v,["json","dry-run","force"])}
+root:=path_absolute("/tmp") + "/assetworks-domain-"+uuid_v4(); func opts(v){return parse_args(v,["json","dry-run","force"])}
 bad:=root+"-transform.json";write_file(bad,"{\"schema_version\":\"1.0.0\",\"source_id\":\"a\",\"operation\":\"resize\"}",true)
 r:=dispatch("resize",opts(["--state",root,"--input",bad,"--actor","operator"]));check(!r["ok"] && r["code"]=="unsupported","honest unsupported transform")
 asset:=root+"-asset.bin";write_file(asset,"media",true);m:=root+"-manifest.json";write_file(m,"{\"schema_version\":\"1.0.0\",\"asset_id\":\"asset-1\",\"media_type\":\"application/octet-stream\",\"rights_reference\":\"rights-1\",\"accessibility_status\":\"reviewed\"}",true)
