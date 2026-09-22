@@ -42,6 +42,10 @@ check(save_new(root,record)["ok"],"small UTF-8 record remains supported")
 output := root+"-export.json"; exported := dispatch("export",opts(["--state",root,"--output",output]))
 check(exported["ok"] && exported["value"]["bytes"]==file_size(output),"export receipt reports UTF-8 bytes rather than characters")
 cleanup_tree(output)
+for field in ["artifact","execution_receipt","authentication"] {
+    record = created["value"]["record"]; record["id"] = "plan-null-"+to_string(passed); record[field] = null
+    check(save_new(root,record)["ok"] && !dispatch("validate",opts(["--state",root,"--id",record["id"]]))["ok"],"persisted optional object rejects explicit null: "+field)
+}
 schema := parse_json(read_file("schemas/record.schema.json"))
 check(json_schema_validate(created["value"]["record"],schema)["valid"],"created record matches public schema")
 record = created["value"]["record"]; record["actor"] = "bad\nactor"

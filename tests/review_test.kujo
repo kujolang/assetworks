@@ -41,7 +41,7 @@ if linked.exitcode == 0 {
     check(!file_exists(outside + "/nested"), "symlink rejection precedes directory creation")
     check(!dispatch("export", opts(["--state", root, "--limit", "1", "--output", root + "-link/export.json"]))["ok"], "export symlinked ancestor rejected")
     check(!file_exists(outside + "/export.json"), "export does not write through symlink")
-    delete_file(root + "-link")
+    cleanup_tree(root + "-link")
 }
 cleanup_tree(root); cleanup_tree(outside)
 print(to_string(passed) + " passed; " + to_string(failed) + " failed")

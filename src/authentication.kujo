@@ -23,6 +23,7 @@ export func authenticate_record(record, key) {
 export func verify_record_authentication(record, key) {
     authentication := get(record, "authentication", null)
     if type(authentication) == "null" {
+        if has_key(record,"authentication") == 1 { return {"ok":false,"code":"invalid_signature","error":"authentication must be an object when present"} }
         if key != "" && get(record, "command", "") == "manifest" { return {"ok": false, "code": "signature_missing", "error": "manifest is unsigned"} }
         return {"ok": true}
     }

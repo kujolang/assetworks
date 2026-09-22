@@ -135,12 +135,14 @@ func validate_record(record, p, verification_key) {
     if type(payload_schema) != "string" || !regex_match(payload_schema, "^1\\.[0-9]+\\.[0-9]+$") || find_sensitive_key(record["payload"], "") != "" { return {"ok": false, "code": "invalid_record", "error": "payload schema or secret-field policy is invalid"} }
     authentication := verify_record_authentication(record, verification_key); if !authentication["ok"] { return authentication }
     receipt := get(record, "execution_receipt", null)
-    if type(receipt) != "null" {
+    if has_key(record,"execution_receipt") == 1 {
         if type(receipt) != "dict" || !has(["planned", "completed"], get(receipt, "execution", "")) || !has(["render", "convert", "resize", "thumbnail"], record["command"]) { return {"ok": false, "code": "invalid_record", "error": "invalid execution receipt"} }
+        if has_key(receipt,"provider_class") == 1 && receipt["provider_class"] != "ffmpeg" { return {"ok":false,"code":"invalid_record","error":"unsupported receipt provider"} }
+        if has_key(receipt,"source_sha256") == 1 && (type(receipt["source_sha256"]) != "string" || !regex_match(receipt["source_sha256"],"^[a-f0-9]{64}$")) { return {"ok":false,"code":"invalid_record","error":"invalid receipt source digest"} }
         if receipt["execution"] == "completed" && (get(receipt, "provider_class", "") != "ffmpeg" || type(get(receipt, "source_sha256", null)) != "string" || !regex_match(get(receipt, "source_sha256", ""), "^[a-f0-9]{64}$") || type(get(record, "artifact", null)) != "dict") { return {"ok": false, "code": "invalid_record", "error": "completed transform requires source digest and generated artifact"} }
     }
     artifact := get(record, "artifact", null)
-    if type(artifact) != "null" && type(artifact) != "dict" { return {"ok": false, "code": "invalid_record", "error": "artifact must be an object"} }
+    if has_key(record,"artifact") == 1 && type(artifact) != "dict" { return {"ok": false, "code": "invalid_record", "error": "artifact must be an object"} }
     if type(artifact) == "dict" {
         path := get(artifact, "path", "")
         if type(path) != "string" || type(get(artifact, "bytes", null)) != "int" || type(get(artifact, "sha256", null)) != "string" { return {"ok": false, "code": "invalid_record", "error": "artifact fields have invalid types"} }
