@@ -38,7 +38,7 @@ assetworks resize --state /absolute/state --actor editor \
   --adapter-config adapter.json --id transform-blue --json
 ```
 
-Inputs support PNG, JPEG, WAV and MP4; outputs support PNG, PCM WAV and MPEG-4 video with optional AAC audio. Resize/thumbnail outputs are PNG with explicit dimensions in 1..8192. The configured binaries must include the requested codecs. Accepted inputs and generated artifacts are capped at 8 MiB; manifest-only streaming support is a separate capability. Logs are capped at 1 MiB per stream and timeout at five minutes. Each process runs without a shell or inherited credentials and permits only `file,pipe` FFmpeg protocols.
+Inputs and outputs support PNG, JPEG, WebP, WAV, FLAC and MP4. JPEG output uses MJPEG with 4:4:4 pixels, WebP output uses lossless libwebp, WAV uses PCM s16le, FLAC is lossless audio, and MP4 uses MPEG-4 video with optional AAC audio. Resize/thumbnail outputs can be PNG, JPEG or WebP with explicit dimensions in 1..8192, including odd dimensions. Each probed stream must match the requested output codec. The configured binaries must include the requested codecs. Accepted inputs and generated artifacts are capped at 8 MiB; manifest-only streaming support is a separate capability. Logs are capped at 1 MiB per stream and timeout at five minutes. Each process runs without a shell or inherited credentials and permits only `file,pipe` FFmpeg protocols.
 
 The input is copied through a confined read before execution. FFprobe must report valid streams, and resize dimensions must match. Generated files are published without replacement under `state/artifacts/SHA256.format`; the immutable record includes the generated checksum, source checksum and probe receipt. JSON timeout failures include `data.timed_out: true` while preserving the existing adapter error codes. `--output` remains an export flag, not an adapter destination override. `--dry-run` validates configuration and intent without running a binary or creating state.
 
@@ -51,4 +51,4 @@ FFMPEG_BIN=/absolute/ffmpeg FFPROBE_BIN=/absolute/ffprobe \
   ASSETWORKS_REQUIRE_ADAPTER_TESTS=1 KUJO_BIN=/absolute/kujo bash scripts/validate.sh
 ```
 
-The suite covers real image resizing, audio conversion, video output, dimension/digest verification, offline declarations, timeout failures, duplicate IDs and side-effect-free previews.
+The suite covers real image resizing, audio conversion, video output, JPEG/WebP/FLAC encoding and decoding from original CC0 fixtures and generated outputs, odd dimensions, digest verification, offline declarations, timeout failures, duplicate IDs and side-effect-free previews. Fixture derivation is recorded in `fixtures/media/LICENSE` and `scripts/generate_media_fixtures.kujo`.

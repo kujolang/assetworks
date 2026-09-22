@@ -1,0 +1,14 @@
+// Regenerate only missing derivative fixtures from original CC0 inputs.
+binary := env("FFMPEG_BIN")
+if type(binary) != "string" || binary == "" { eprint("set FFMPEG_BIN to an explicit executable"); exit(1) }
+for fixture in [
+    {"input":"input.png","output":"input.jpeg","options":["-frames:v","1","-c:v","mjpeg","-pix_fmt","yuvj444p","-f","image2","-update","1"]},
+    {"input":"input.png","output":"input.webp","options":["-frames:v","1","-c:v","libwebp","-lossless","1","-f","webp"]},
+    {"input":"input.wav","output":"input.flac","options":["-c:a","flac","-f","flac"]}
+] {
+    argv := concat([binary,"-nostdin","-hide_banner","-loglevel","error","-i","fixtures/media/"+fixture["input"],"-map_metadata","-1","-threads","1"],fixture["options"])
+    argv = concat(argv,["-n","fixtures/media/"+fixture["output"]])
+    result := spawn_process(argv,{"timeout_ms":10000,"max_output_bytes":65536,"inherit_env":false,"env_allow":["SystemRoot","WINDIR","TEMP","TMP"]})
+    if result.exitcode != 0 || result.timed_out { eprint(result.stderr); exit(1) }
+    print(fixture["output"] + " " + sha256_file("fixtures/media/"+fixture["output"]))
+}

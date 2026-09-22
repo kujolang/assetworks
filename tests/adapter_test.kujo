@@ -35,6 +35,37 @@ write_file(payload_path, to_json(payload), true)
 rendered := dispatch("render", opts(["--state",root,"--input",payload_path,"--actor","adapter-test","--path",path_absolute("fixtures/media/input.png"),"--adapter-config",config_path,"--id","transform-video"]))
 if !rendered["ok"] { eprint(to_json(rendered)) }
 check(rendered["ok"], "real ffmpeg video rendering succeeds")
+for format in ["jpeg", "webp", "flac"] {
+    audio := format == "flac"
+    source_format := "png"; reverse_format := "png"; command := "resize"
+    if audio { source_format = "wav"; reverse_format = "wav"; command = "convert" }
+    payload["input_format"] = source_format; payload["output_format"] = format; payload["operation"] = command
+    payload["width"] = 17; payload["height"] = 13
+    write_file(payload_path, to_json(payload), true)
+    encoded := dispatch(command, opts(["--state",root,"--input",payload_path,"--actor","adapter-test","--path",path_absolute("fixtures/media/input."+source_format),"--adapter-config",config_path,"--id","transform-encode-"+format]))
+    if !encoded["ok"] { eprint(to_json(encoded)) }
+    check(encoded["ok"], "encode " + format)
+    if encoded["ok"] {
+        record := encoded["value"]["record"]; stream := record["execution_receipt"]["streams"][0]
+        expected_codec := format; if format == "jpeg" { expected_codec = "mjpeg" }
+        check(stream["codec_name"] == expected_codec, "encoded codec matches " + format)
+        if audio {
+            check(stream["codec_type"] == "audio" && stream["channels"] == 1 && to_int(stream["sample_rate"]) > 0, "FLAC retains valid mono audio")
+        } else { check(stream["width"] == 17 && stream["height"] == 13, "odd image dimensions survive " + format) }
+        for source in ["fixture", "generated"] {
+            path := record["artifact"]["path"]; if source == "fixture" { path = path_absolute("fixtures/media/input."+format) }
+            payload["input_format"] = format; payload["output_format"] = reverse_format
+            write_file(payload_path, to_json(payload), true)
+            decoded := dispatch(command, opts(["--state",root,"--input",payload_path,"--actor","adapter-test","--path",path,"--adapter-config",config_path,"--id","transform-decode-"+format+"-"+source]))
+            if !decoded["ok"] { eprint(to_json(decoded)) }
+            check(decoded["ok"], "decode " + format + " " + source)
+            if decoded["ok"] {
+                artifact := decoded["value"]["record"]["artifact"]
+                check(sha256_file(artifact["path"]) == artifact["sha256"] && artifact["bytes"] > 0, "decoded bytes match receipt for " + format + " " + source)
+            }
+        }
+    }
+}
 check(dispatch("validate", opts(["--state",root]))["ok"], "executed records and audit events validate")
 payload["input_format"] = "https"; write_file(payload_path, to_json(payload), true)
 check(!dispatch("render", opts(["--state",root,"--input",payload_path,"--actor","adapter-test","--path",path_absolute("fixtures/media/input.png"),"--adapter-config",config_path]))["ok"], "network input formats are not accepted")
