@@ -1,0 +1,86 @@
+name: published-install
+on:
+  workflow_dispatch:
+    inputs:
+      assetworks_tag:
+        description: Published AssetWorks tag
+        required: true
+        default: v0.3.0
+        type: string
+      kujo_tag:
+        description: Published Kujo tag
+        required: true
+        default: v1.5.0
+        type: string
+permissions:
+  contents: read
+jobs:
+  installed-launcher:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            platform: linux-x64
+            extension: tar.gz
+            binary: kujo
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+            extension: tar.gz
+            binary: kujo
+          - os: macos-15-intel
+            platform: macos-x64
+            extension: tar.gz
+            binary: kujo
+          - os: macos-15
+            platform: macos-arm64
+            extension: tar.gz
+            binary: kujo
+          - os: windows-latest
+            platform: windows-x64
+            extension: zip
+            binary: kujo.exe
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - name: Verify checksummed downloads and installed launcher
+        shell: bash
+        env:
+          APP_TAG: ${{ inputs.assetworks_tag }}
+          RUNTIME_TAG: ${{ inputs.kujo_tag }}
+          RUNTIME_PLATFORM: ${{ matrix.platform }}
+          RUNTIME_EXTENSION: ${{ matrix.extension }}
+          RUNTIME_BINARY: ${{ matrix.binary }}
+        run: |
+          set -euo pipefail
+          [[ "$APP_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$RUNTIME_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          app_archive="assetworks-${APP_TAG}.tar.gz"
+          runtime_archive="kujo-${RUNTIME_TAG}-${RUNTIME_PLATFORM}.${RUNTIME_EXTENSION}"
+          download() {
+            local repository="$1" tag="$2" archive="$3"
+            local base="https://github.com/kujolang/${repository}/releases/download/${tag}"
+            curl --fail --silent --show-error --location --retry 3 "$base/$archive" -o "$archive"
+            curl --fail --silent --show-error --location --retry 3 "$base/$archive.sha256" -o "$archive.sha256"
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum -c "$archive.sha256"
+            else
+              shasum -a 256 -c "$archive.sha256"
+            fi
+          }
+          download assetworks "$APP_TAG" "$app_archive"
+          download kujo "$RUNTIME_TAG" "$runtime_archive"
+          mkdir installed-runtime installed-app
+          tar -xzf "$app_archive" -C installed-app
+          if [[ "$RUNTIME_EXTENSION" == zip ]]; then
+            unzip -q "$runtime_archive" -d installed-runtime
+          else
+            tar -xzf "$runtime_archive" -C installed-runtime
+          fi
+          export KUJO_BIN="$PWD/installed-runtime/$RUNTIME_BINARY"
+          app_root="$PWD/installed-app/assetworks-${APP_TAG#v}"
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            KUJO_BIN="$(cygpath -m "$KUJO_BIN")"
+            app_root="$(cygpath -m "$app_root")"
+          fi
+          "$KUJO_BIN" run --isolated-imports "$app_root/scripts/release_smoke.kujo" -- "$app_root"
