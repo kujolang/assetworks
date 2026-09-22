@@ -84,12 +84,20 @@ export func execute_transform(command, payload, source_path, state, config, dry_
     mut process := null
     try { process = spawn_process(argv, process_options(config)) }
     except error { discard_stage(directory, stage_files); return adapter_error("adapter_failed", "adapter could not be started") }
-    if !process_ok(process) { discard_stage(directory, stage_files); return adapter_error("adapter_failed", "adapter failed, timed out, was cancelled or exceeded its log bound") }
+    if !process_ok(process) {
+        failure := adapter_error("adapter_failed", "adapter failed, timed out, was cancelled or exceeded its log bound")
+        failure["timed_out"] = process.timed_out
+        discard_stage(directory, stage_files); return failure
+    }
     probe_args := [config["probe_binary"], "-v", "error", "-protocol_whitelist", "file,pipe", "-show_streams", "-show_format", "-of", "json", output_path]
     mut probe_process := null
     try { probe_process = spawn_process(probe_args, process_options(config)) }
     except error { discard_stage(directory, stage_files); return adapter_error("adapter_probe", "probe could not be started") }
-    if !process_ok(probe_process) { discard_stage(directory, stage_files); return adapter_error("adapter_probe", "generated artifact could not be probed within bounds") }
+    if !process_ok(probe_process) {
+        failure := adapter_error("adapter_probe", "generated artifact could not be probed within bounds")
+        failure["timed_out"] = probe_process.timed_out
+        discard_stage(directory, stage_files); return failure
+    }
     probe := parse_object(probe_process.stdout, "media probe")
     if !probe["ok"] || type(get(get(probe, "value", {}), "streams", null)) != "array" || len(get(get(probe, "value", {}), "streams", [])) == 0 { discard_stage(directory, stage_files); return adapter_error("adapter_probe", "generated artifact has no valid streams") }
     streams := probe["value"]["streams"]

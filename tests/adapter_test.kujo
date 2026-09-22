@@ -1,6 +1,7 @@
 from src.core import dispatch
 from src.args import parse_args
 from src.adapters import load_adapter
+from src.common import get
 from tests.support import test_root, cleanup_tree
 mut passed := 0; mut failed := 0
 func check(ok, label) { if ok { passed = passed + 1 } else { failed = failed + 1; eprint("FAIL: " + label) } }
@@ -40,8 +41,11 @@ check(!dispatch("render", opts(["--state",root,"--input",payload_path,"--actor",
 config["offline"] = false; write_file(config_path, to_json(config), true)
 check(!load_adapter(config_path)["ok"], "online adapter declaration rejected")
 config["offline"] = true; config["timeout_ms"] = 1; write_file(config_path, to_json(config), true)
-payload["input_format"] = "png"; payload["output_format"] = "png"; write_file(payload_path, to_json(payload), true)
-check(!dispatch("resize", opts(["--state",root,"--input",payload_path,"--actor","adapter-test","--path",path_absolute("fixtures/media/input.png"),"--adapter-config",config_path,"--id","transform-timeout"]))["ok"], "adapter process timeout fails without successful receipt")
+// A tiny 16x12 conversion can finish before the process runner's first poll.
+// Use real pixel work so this exercises termination, not a scheduling race.
+payload["input_format"] = "png"; payload["output_format"] = "png"; payload["width"] = 8192; payload["height"] = 8192; write_file(payload_path, to_json(payload), true)
+timed := dispatch("resize", opts(["--state",root,"--input",payload_path,"--actor","adapter-test","--path",path_absolute("fixtures/media/input.png"),"--adapter-config",config_path,"--id","transform-timeout"]))
+check(!timed["ok"] && get(timed,"timed_out",false), "adapter reports actual process timeout without successful receipt")
 check(!file_exists(root + "/records/transform-timeout.json"), "failed adapter creates no record")
 cleanup_tree(root); cleanup_tree(config_path); cleanup_tree(payload_path)
 print(to_string(passed) + " passed; " + to_string(failed) + " failed")
