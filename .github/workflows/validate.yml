@@ -57,14 +57,19 @@ jobs:
         with:
           path: .runtime/kujo/target
           key: runtime-${{ runner.os }}-${{ runner.arch }}-${{ env.KUJO_COMMIT }}
-      - if: steps.runtime-cache.outputs.cache-hit != 'true'
-        run: cargo build --release --locked --manifest-path .runtime/kujo/Cargo.toml
       - name: Verify runtime boundary contracts
         if: steps.runtime-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           cargo test --release --locked --manifest-path .runtime/kujo/Cargo.toml --test native_api_security_boundaries sha256_beneath
           cargo test --release --locked --manifest-path .runtime/kujo/Cargo.toml --test directory_page_contract
+      # Integration tests build the CLI binary as well as the native contracts.
+      # Preserve this verified runtime even if a later application test fails.
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
+        with:
+          path: .runtime/kujo/target
+          key: runtime-${{ runner.os }}-${{ runner.arch }}-${{ env.KUJO_COMMIT }}
       - shell: bash
         env:
           ASSETWORKS_REQUIRE_ADAPTER_TESTS: "1"
