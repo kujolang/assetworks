@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 env:
-  KUJO_COMMIT: 599866bef0beb042c07751b77aa538db7f1a696c
+  KUJO_COMMIT: 4e987a4e10d4b45621805e5acb420de4c9824b90
 jobs:
   full-suite-matrix:
     strategy:
@@ -29,8 +29,53 @@ jobs:
         run: |
           echo "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
           vcpkg install openssl:x64-windows-static-md
-      - run: cargo build --release --manifest-path .runtime/kujo/Cargo.toml
+          New-Item -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" -Force | Out-Null
+          New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock" -Name "AllowDevelopmentWithoutDevLicense" -Value 1 -PropertyType DWord -Force | Out-Null
+      - name: Install FFmpeg on Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install FFmpeg on macOS
+        if: runner.os == 'macOS'
+        run: brew list ffmpeg >/dev/null 2>&1 || brew install ffmpeg
+      - name: Install FFmpeg on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install ffmpeg --yes --no-progress
+          $ffmpeg = Get-ChildItem C:/ProgramData/chocolatey/lib/ffmpeg -Filter ffmpeg.exe -Recurse | Select-Object -First 1
+          $ffprobe = Get-ChildItem C:/ProgramData/chocolatey/lib/ffmpeg -Filter ffprobe.exe -Recurse | Select-Object -First 1
+          "FFMPEG_BIN=$($ffmpeg.FullName)" >> $env:GITHUB_ENV
+          "FFPROBE_BIN=$($ffprobe.FullName)" >> $env:GITHUB_ENV
+      - name: Configure explicit FFmpeg binaries
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          echo "FFMPEG_BIN=$(command -v ffmpeg)" >> "$GITHUB_ENV"
+          echo "FFPROBE_BIN=$(command -v ffprobe)" >> "$GITHUB_ENV"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: .runtime/kujo/target
+          key: runtime-${{ runner.os }}-${{ runner.arch }}-${{ env.KUJO_COMMIT }}
+      - run: cargo build --release --locked --manifest-path .runtime/kujo/Cargo.toml
+      - name: Verify runtime boundary contracts
+        shell: bash
+        run: |
+          cargo test --release --locked --manifest-path .runtime/kujo/Cargo.toml --test native_api_security_boundaries sha256_beneath
+          cargo test --release --locked --manifest-path .runtime/kujo/Cargo.toml --test directory_page_contract
       - shell: bash
         env:
+          ASSETWORKS_REQUIRE_ADAPTER_TESTS: "1"
           KUJO_BIN: ${{ github.workspace }}/.runtime/kujo/target/release/kujo
         run: bash scripts/validate.sh
+      - name: Measure large files and mixed/corrupt state
+        env:
+          KUJO_BIN: ${{ github.workspace }}/.runtime/kujo/target/release/kujo
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          for size in 68157440 1073741824 4294967296; do
+            .runtime/kujo/target/release/kujo run scripts/streaming_benchmark.kujo -- "$size"
+          done
+          for count in 1000 10000 100000; do
+            .runtime/kujo/target/release/kujo run scripts/scale_benchmark.kujo -- "$count"
+          done

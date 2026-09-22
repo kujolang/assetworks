@@ -1,0 +1,13 @@
+# Bounded listing and validation
+
+`list`, `history`, `export` and whole-state `validate` inspect at most `--limit` directory entries (1..1000), including internal markers and corrupt names. A selective filter can return an empty page with `truncated: true`. Always resume with the returned `next_after`, rather than the last returned record. Legacy record/event ID cursors remain accepted; new opaque `file:` cursors also advance past malformed names.
+
+The native iterator retains at most 1001 names, scans at most 100,000 directory entries, and rejects a directory beyond that bound. It opens every directory component without following symlinks. Each page may scan the directory again: this is bounded-memory pagination, not a persistent index. Internal marker files count toward the 100,000-entry ceiling. Split larger collections into independently managed states.
+
+Record pages read at most 8 MiB of record contents, history pages reserve at most 8 MiB for events and optional record reconciliation, and transaction pages reserve at most 32 MiB for journals and both published copies. Individual native reads can consume one extra byte to detect concurrent growth. Each file retains its own size bound. Failure paths are charged conservatively. Validation of record pages additionally reads their audit events and hashes attached artifacts within each artifact's recorded limit. Use smaller pages when hashing large assets.
+
+`validate` returns `scope: "page"`, `page_valid`, `started_from_origin`, and three independent cursors: `next_after`, `next_history_after`, `next_transaction_after`. Supply those as `--after`, `--history-after`, and `--transaction-after`. An unfinished page sequence returns `validation_incomplete` with nonzero exit status even when the inspected page is valid. Preserve every earlier failure; a successful final page does not retroactively validate earlier pages. Continue all three streams until `truncated` is false. `doctor` is a bounded first-page diagnostic and cannot certify a larger state as healthy.
+
+These cursors are not snapshot tokens. Stop writers and protect the state directory when performing a complete audit; concurrent insertion before an already consumed cursor requires restarting from the beginning. `--id` remains the focused validation path.
+
+Reproduce mixed/corrupt scale measurements with `KUJO_BIN=/absolute/path/to/kujo kujo run scripts/scale_benchmark.kujo -- 1000` (also 10000 and 100000). Synthetic files intentionally bypass durability writes and measure page IO, not transaction throughput. Page timings and peak RSS come from a fresh child process, excluding fixture generation.

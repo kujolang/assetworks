@@ -4,7 +4,7 @@ Contract 1.0.0. AssetWorks owns: Asset Source; Asset Job; Transformation Step; M
 
 Hardening contracts define offline FFmpeg/image-provider conformance, SHA-256 streaming checksums from 64 MiB through a configured 4 GiB ceiling, normalized duration/dimension/codec probes, optional explicit-key HMAC-SHA256 manifest signatures, and lossless 32-process contention receipts. Signing keys are never read implicitly.
 
-Hardening helpers are library contracts, not integrated CLI features. CLI artifact attachments remain limited to 64 MiB. Transform records describe intent rather than codec execution. Whole-state validation returns `validation_incomplete`, and doctor returns `inspection_incomplete`, if more than 1,000 records exist; both exit unsuccessfully rather than certify unseen records.
+The CLI integrates explicit FFmpeg execution, opt-in artifact bounds up to 4 GiB and manifest HMAC authentication. Without an adapter configuration, transformations remain planned intents. Whole-state validation returns `validation_incomplete`, and doctor returns `inspection_incomplete`, when page or byte budgets leave unseen entries. Validation resumes through independent record/history/transaction cursors; see [pagination](PAGINATION.md).
 
 Creation records permit mutation commands only; read commands cannot be persisted as valid records. Configuration follows `schemas/config.schema.json` with strict string/integer types. Numeric CLI bounds reject overlong decimal strings before conversion. UTC timestamps require actual calendar dates; offset timestamps and leap seconds remain outside the accepted subset. JSON usage errors use the normal envelope with `error_code: usage_error` and exit status 2.
 

@@ -9,17 +9,17 @@ AssetWorks is a local-first Kujo tool for media asset planning, immutable proven
 
 ## What works today
 
-Plan media work, record transformation intents, bind files to manifests and accessibility records, inspect and export local records, and validate attached file checksums. Core commands run offline in Kujo, with no required hosted service or model credentials. Transform commands record intent; they do not execute FFmpeg or an image processor.
+Plan media work, record transformation intents, bind files to manifests and accessibility records, inspect and export local records, and validate attached file checksums. Core commands run offline in Kujo, with no required hosted service or model credentials. Transform commands record a planned intent by default. With an explicit [FFmpeg adapter configuration](docs/ADAPTERS.md), they execute bounded offline conversions, probe the generated artifact and record a completed receipt.
 
 Records have stable IDs, actors, timestamps and append-only creation events. Storage uses immutable transaction journals and atomic no-replace writes. Validation reconciles exact record bytes with their creation events and detects orphan events. [Recovery](docs/RECOVERY.md) replays interrupted transactions without overwriting existing evidence. This remains an operator-controlled local tool, not a hosted multi-tenant service.
 
-Standalone library helpers cover adapter receipts, probe metadata, bounded large-file hashing and shared-key HMAC authentication. They are not integrated CLI capabilities, and the current tests do not establish multi-gigabyte performance.
+Optional [shared-key HMAC authentication](docs/AUTHENTICATION.md) signs complete manifest records. [Confined streaming checksums](docs/LARGE_FILES.md) support explicitly bounded attachments up to 4 GiB. The adapter has a separate 8 MiB input/output limit.
 
 See the [September review and prioritized next-session worklist](docs/REVIEW_2026-09-22.md). The [previous review](docs/PRODUCTION_READINESS_REVIEW.md) and [August checklist](docs/NEXT_SESSION.md) are historical.
 
 ## Quick install
 
-This development version requires Kujo 1.4.0 with confined filesystem primitives. CI pins source revision `599866bef0beb042c07751b77aa538db7f1a696c`; use that build for reproducibility rather than assuming every binary labeled 1.4.0 includes these preview APIs. Full-suite Linux/macOS/Windows verification is in progress.
+This development version requires Kujo 1.4.0 with confined filesystem primitives. CI pins source revision `4e987a4e10d4b45621805e5acb420de4c9824b90`; use that build for reproducibility rather than assuming every binary labeled 1.4.0 includes these preview APIs. Full-suite Linux/macOS/Windows verification is in progress.
 
 ```bash
 git clone https://github.com/kujolang/assetworks.git
@@ -41,11 +41,11 @@ assetworks export --output assetworks-export.json --json
 
 Run `assetworks --help` for the complete command surface. Common flags include `--state`, `--config`, `--input`, `--actor`, `--timestamp`, `--id`, `--path`, `--type`, `--after`, `--limit`, `--output`, `--force`, `--dry-run`, and `--json`. JSON mode uses the stable `ok/data/error/error_code/tool_version/contract_version` envelope. Exit codes are 0 success, 1 operational failure, and 2 usage error.
 
-State defaults to `.assetworks/`. Use operator-controlled directories and canonical paths without symlinked ancestors. Inputs and individual records are capped at 1 MiB; CLI attachments are capped at 64 MiB. `--dry-run` validates a proposed record without creating state. It does not reserve an ID.
+State defaults to `.assetworks/`. Use operator-controlled directories and canonical paths without symlinked ancestors. Inputs and individual records are capped at 1 MiB; CLI attachments default to 64 MiB; `--max-artifact-bytes` explicitly raises the limit up to 4 GiB. `--dry-run` validates a proposed record without creating state. It does not reserve an ID.
 
-Lists and exports return at most 1,000 records; paginate with `--after` using the last returned ID. Doctor and whole-state validation fail with an incomplete result if more records exist. Validate additional records individually with `--id`. Exports into the active state directory are refused even with `--force`. Case-equivalent state names are conservatively reserved across platforms.
+Lists and exports inspect at most 1,000 directory entries per page and enforce aggregate byte budgets. Resume using the returned `next_after`, even on an empty filtered page. [Whole-state validation has three independent resumable cursors](docs/PAGINATION.md) and never reports an unfinished audit as complete. Doctor remains a bounded first-page diagnostic. Exports into the active state directory are refused even with `--force`. Case-equivalent state names are conservatively reserved across platforms.
 
-Validation checks attached-file drift, exact record/event checksums, orphan events and transaction completeness. It does not authenticate evidence against an operator who can rewrite all state files. `history` lists creation events and accepts its returned event cursor with `--after`.
+Validation checks attached-file drift, exact record/event checksums, orphan events and transaction completeness. Unsigned evidence cannot authenticate an operator who can rewrite all state files. HMAC verification adds authenticity only when the shared key remains protected separately from state. `history` lists creation events and accepts its returned event cursor with `--after`.
 
 For a complete runnable plan → manifest → captions/transcript → validate → export example, see [the licensed media walkthrough](examples/README.md).
 
@@ -65,10 +65,11 @@ bin/assetworks        logic-free launcher
 ## Verification
 
 ```bash
-KUJO_BIN=/absolute/path/to/kujo bash scripts/validate.sh
+FFMPEG_BIN=/absolute/path/to/ffmpeg FFPROBE_BIN=/absolute/path/to/ffprobe \
+ASSETWORKS_REQUIRE_ADAPTER_TESTS=1 KUJO_BIN=/absolute/path/to/kujo bash scripts/validate.sh
 ```
 
-The gate checks the entrypoint, every Kujo suite, JSON artifacts, CLI smoke paths, foreign-runtime boundaries, and the Git diff.
+The gate checks the entrypoint, Kujo suites, real FFmpeg conversions, JSON artifacts, CLI smoke paths, distinct-ID and same-ID contention, foreign-runtime boundaries, and the Git diff. Omit the FFmpeg variables only for a core-only local run; CI requires the adapter suite.
 
 ## Explore the Kujo implementation
 
