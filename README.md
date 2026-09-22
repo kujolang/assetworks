@@ -35,7 +35,6 @@ On Windows the executable ends in `.exe`; [the CI workflow](.github/workflows/va
 ```bash
 git clone https://github.com/kujolang/assetworks.git
 cd assetworks
-export KUJO_BIN=/absolute/path/to/kujo
 export PATH="$PWD/bin:$PATH"
 assetworks --version --json
 assetworks doctor --json
