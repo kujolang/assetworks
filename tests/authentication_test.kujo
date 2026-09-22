@@ -20,6 +20,8 @@ check(!verify_record_authentication(record,fixture_key)["ok"], "HMAC binds actor
 record = created["value"]["record"]; record["authentication"] = null
 check(!verify_record_authentication(record,fixture_key)["ok"], "explicit verification refuses unsigned downgrade")
 check(contains(to_json(created), fixture_key) == 0 && contains(read_file(root + "/transactions/manifest-authenticated.json"), fixture_key) == 0, "key material is absent from response and journal")
+record = created["value"]["record"]; auth := record["authentication"]; auth["unknown"] = true; record["authentication"] = auth
+check(!verify_record_authentication(record,fixture_key)["ok"],"unknown authentication fields rejected")
 write_file(key_path, "short", true)
 check(!dispatch("validate", opts(["--state",root,"--key-file",key_path]))["ok"], "short key rejected")
 cleanup_tree(root); cleanup_tree(key_path); cleanup_tree(bad_key_path); cleanup_tree(input_path)

@@ -134,21 +134,24 @@
           "pattern": "^[a-f0-9]{64}$"
         }
       },
-      "allOf": [
+      "oneOf": [
         {
-          "if": {
-            "properties": {
-              "execution": {
-                "const": "completed"
-              }
+          "properties": {
+            "execution": {
+              "const": "planned"
+            }
+          }
+        },
+        {
+          "properties": {
+            "execution": {
+              "const": "completed"
             }
           },
-          "then": {
-            "required": [
-              "provider_class",
-              "source_sha256"
-            ]
-          }
+          "required": [
+            "provider_class",
+            "source_sha256"
+          ]
         }
       ]
     }

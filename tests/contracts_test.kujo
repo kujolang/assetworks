@@ -34,6 +34,12 @@ record = created["value"]["record"]; record["id"] = "plan-bad-receipt"; record["
 check(save_new(root,record)["ok"] && !dispatch("validate",opts(["--state",root,"--id",record["id"]]))["ok"],"receipt on non-transform rejected")
 record = created["value"]["record"]; record["id"] = "plan-bad-payload"; record["payload"] = []
 check(save_new(root,record)["ok"] && !dispatch("validate",opts(["--state",root,"--id",record["id"]]))["ok"],"persisted payload requires an object")
+schema := parse_json(read_file("schemas/record.schema.json"))
+check(json_schema_validate(created["value"]["record"],schema)["valid"],"created record matches public schema")
+record = created["value"]["record"]; record["actor"] = "bad\nactor"
+check(!json_schema_validate(record,schema)["valid"],"public schema rejects control characters")
+record = created["value"]["record"]; record["execution_receipt"] = {"execution":"completed"}
+check(!json_schema_validate(record,schema)["valid"],"public schema requires completed receipt evidence")
 cleanup_tree(root); delete_file(config)
 print(to_string(passed) + " passed; " + to_string(failed) + " failed")
 if failed > 0 { exit(1) }

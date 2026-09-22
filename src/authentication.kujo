@@ -28,6 +28,7 @@ export func verify_record_authentication(record, key) {
     }
     if key == "" { return {"ok": false, "code": "verification_key_required", "error": "authenticated records require an explicit --key-file for validation"} }
     if type(authentication) != "dict" || get(authentication, "algorithm", "") != "hmac-sha256" || type(get(authentication, "signature", null)) != "string" { return {"ok": false, "code": "invalid_signature", "error": "unsupported authentication shape or algorithm"} }
+    for field in keys(authentication) { if field != "algorithm" && field != "signature" { return {"ok":false,"code":"invalid_signature","error":"unknown authentication field"} } }
     signature := authentication["signature"]
     if !regex_match(signature, "^[a-f0-9]{64}$") { return {"ok": false, "code": "invalid_signature", "error": "signature must be a SHA-256 HMAC hex digest"} }
     if !hmac_sha256_verify(key, canonical_json(unsigned_record(record)), signature) { return {"ok": false, "code": "signature_mismatch", "error": "manifest authentication failed"} }
