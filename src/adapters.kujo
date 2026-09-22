@@ -14,6 +14,11 @@ export func load_adapter(path) {
     if get(config, "schema_version", "") != "1.0.0" || get(config, "provider_class", "") != "ffmpeg" || get(config, "offline", false) != true { return adapter_error("adapter_config", "adapter must declare schema 1.0.0, ffmpeg and offline=true") }
     for key in ["binary", "probe_binary"] {
         executable := get(config, key, null)
+        if type(executable) == "string" {
+            executable = replace_str(executable,"\\","/")
+            if starts_with(executable,"//?/") { executable = substring(executable,4,len(executable)) }
+            config[key] = executable
+        }
         if type(executable) != "string" || (!starts_with(executable, "/") && !regex_match(executable, "^[A-Za-z]:[/\\\\]")) || !path_is_file(executable) || is_link(executable) { return adapter_error("adapter_config", key + " must name an explicit absolute regular non-symlink executable") }
     }
     for bound in [{"name":"timeout_ms","default":30000,"max":300000}, {"name":"max_output_bytes","default":65536,"max":1048576}, {"name":"artifact_max_bytes","default":8388608,"max":8388608}] {
