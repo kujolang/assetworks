@@ -19,7 +19,7 @@ See the [blocker follow-up and next-session opportunities](docs/REVIEW_FOLLOWUP_
 
 ## Quick install
 
-This development version requires Kujo 1.4.0 with confined filesystem primitives. CI pins source revision `4e987a4e10d4b45621805e5acb420de4c9824b90`; use that build for reproducibility rather than assuming every binary labeled 1.4.0 includes these preview APIs. Full-suite Linux/macOS/Windows verification is in progress.
+This development version requires Kujo 1.4.0 with confined filesystem primitives. CI pins source revision `4e987a4e10d4b45621805e5acb420de4c9824b90`; use that build for reproducibility rather than assuming every binary labeled 1.4.0 includes these preview APIs. The [full Linux/macOS/Windows suite](https://github.com/kujolang/assetworks/actions/runs/35771712287) passes at `f57791d`, including 189 assertions per platform, real media adapters and concurrency checks. See the [blocker follow-up](docs/REVIEW_FOLLOWUP_2026-09-22.md) for limits, benchmarks and next-session opportunities.
 
 Build the pinned runtime in a separate checkout (Rust and the platform dependencies described in [Kujo's source-build guide](https://github.com/kujolang/kujo/blob/4e987a4e10d4b45621805e5acb420de4c9824b90/README.md#build-and-test-from-source) are required):
 

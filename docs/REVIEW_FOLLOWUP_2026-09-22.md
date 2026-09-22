@@ -14,16 +14,16 @@ This follows [the September review](REVIEW_2026-09-22.md). AssetWorks remains a 
 | AW-06 | Explicit FFmpeg adapter with bounded processes, logs, copied input, protocol allowlist, output probes and content-addressed artifacts | Twelve real conversion assertions pass locally. Platform conformance is required by CI. |
 | AW-07 | CLI manifest HMAC with explicit separate keys; attachments optionally bounded through 4 GiB | Authentication, tampering, downgrade, key handling and streaming tests pass. 65 MiB, 1 GiB and 4 GiB manifest creation, validation and independent digest comparisons pass locally. |
 | AW-08 | Strict config and persisted record shapes, mutation-only commands, numeric overflow rejection, UTC calendar checks, JSON usage envelopes and public schema tests | Contract and authentication suites include Unicode byte quotas and key-length checks. |
-| AW-09 | Pinned source runtime, full three-platform suite, mandatory adapter tests and native boundary contracts | Clean-checkout local gate passes. Current Linux/macOS/Windows CI results pending. Earlier Windows run exposed link-fixture path handling; that setup was corrected. |
+| AW-09 | Pinned source runtime, full three-platform suite, mandatory adapter tests and native boundary contracts | The [final Linux/macOS/Windows matrix](https://github.com/kujolang/assetworks/actions/runs/35771712287) passes at `f57791d`: 189 assertions per platform, both contention scenarios, required real adapters and remaining gate checks. |
 | AW-10 | Original CC0 samples and runnable plan → manifest → captions/transcript → validate → export walkthrough | Four records/events created, reconciled and exported locally. |
 
 ## Runtime and reproducibility
 
 The source requirement is Kujo `4e987a4e10d4b45621805e5acb420de4c9824b90`, a published preview revision containing both confined streaming SHA-256 and bounded directory enumeration. An arbitrary binary labeled 1.4.0 is insufficient. The runtime work is available in [Kujo PR #10](https://github.com/kujolang/kujo/pull/10). AssetWorks pins the immutable source revision rather than waiting for a future runtime release.
 
-Local native verification passed 16 confined filesystem unit tests, focused filesystem integration checks, digest VM/interpreter parity and directory-page capability checks. A broader reduced-feature integration run passed 87 of 88 tests: its database misuse test expected the database feature omitted from that build. That is a build-feature limitation, not a passing full-runtime result. Platform application CI builds the default runtime features. The pinned runtime also passed its [descriptor-relative filesystem conformance matrix on Linux, macOS and Windows](https://github.com/kujolang/kujo/actions/runs/35751023004).
+Local native verification passed 16 confined filesystem unit tests, focused filesystem integration checks, digest VM/interpreter parity and directory-page capability checks. A broader reduced-feature integration run passed 87 of 88 tests: its database misuse test expected the database feature omitted from that build. That is a build-feature limitation, not a passing full-runtime result. Platform application CI builds the default runtime features. The pinned runtime also passed its [descriptor-relative filesystem conformance matrix on Linux, macOS and Windows](https://github.com/kujolang/kujo/actions/runs/35751023004). The runtime PR subsequently passed the [full release gate, Clippy, formatting and VM/interpreter parity](https://github.com/kujolang/kujo/actions/runs/35763595225) at `8f64343`, after merging upstream changes and refreshing generated inventories and the standard-library index. An unchanged SSG harness test failed on an earlier attempt, then passed in isolation and in the successful full gate.
 
-The local complete gate passed 178 assertions from clean checkout `1f2478e`, including real adapters, Windows path normalization and schema/authentication changes; both contention scenarios and remaining gate checks passed. The subsequent artifact-error and prefix-cursor fixes passed the complete local gate at `57ba330` (182 assertions plus both contention scenarios and remaining checks). A final resource audit also confirmed that Kujo `len()` counts Unicode characters: record, journal, export and aggregate-read bounds now use `byte_length()`. Regression fixtures cover oversized Unicode records, multi-byte page budgets and exact export byte receipts. Exact final CI and benchmark receipts will be recorded after those runs finish.
+The clean-checkout local gate passed **189 assertions** at `d410f90`. After normalizing all Windows media paths at the FFmpeg boundary, the complete local gate passed again at `b15d08d`. Coverage includes real adapters, schema conformance, authentication, Unicode byte quotas and prefix-ID pagination. Both contention scenarios and remaining gate checks passed. The CC0 walkthrough created, reconciled and exported four records/events. Kujo `len()` counts Unicode characters, so serialized record, journal, export and aggregate-read bounds use `byte_length()`. Regression fixtures cover oversized Unicode records, multi-byte page budgets, exact export byte receipts and optional-object null rejection. The final platform matrix at `f57791d` also verifies explicit timeout metadata using an 8192×8192 resize workload and the actual runtime timeout flag; this replaces the timing-dependent tiny-image fixture. A direct CLI check confirmed `data.timed_out: true`, the preserved error code and no successful record. The final evidence-only documentation commit does not change executable code.
 
 ## Measured limits
 
@@ -43,15 +43,23 @@ Fresh-process page measurements exclude fixture generation. Every first page rea
 | 10,000 | 8,924 ms | 8,409 ms | 29,302,784 bytes |
 | 100,000 | 9,155 ms | 9,738 ms | 29,261,824 bytes |
 
-The initial Linux release run (revision `a765831`, [CI run](https://github.com/kujolang/assetworks/actions/runs/35751403258)) passed the complete application suite and benchmarks. Streaming release results were:
+The Linux release run at application revision `f57791d` ([CI run](https://github.com/kujolang/assetworks/actions/runs/35771712287)) passed all application checks and benchmarks:
 
 | Artifact bytes | Manifest creation | Validation | Peak RSS |
 | ---: | ---: | ---: | ---: |
-| 68,157,440 | 65 ms | 61 ms | 30,146,560 bytes |
-| 1,073,741,824 | 838 ms | 766 ms | 30,003,200 bytes |
-| 4,294,967,296 | 3,298 ms | 3,029 ms | 29,741,056 bytes |
+| 68,157,440 | 56 ms | 54 ms | 30,789,632 bytes |
+| 1,073,741,824 | 750 ms | 677 ms | 30,420,992 bytes |
+| 4,294,967,296 | 2,841 ms | 2,686 ms | 30,461,952 bytes |
 
-The first Linux scale-memory results were not accepted as isolated page measurements: a forked measurement child can inherit its fixture-generating parent's peak RSS. The corrected shell wrapper launches fixture preparation and measurement as sibling processes. Corrected optimized scale receipts remain pending. See [pagination](PAGINATION.md) and [large files](LARGE_FILES.md) for exact commands and interpretation.
+The first Linux scale-memory results were discarded because a forked measurement child can inherit its fixture-generating parent's peak RSS. The corrected shell wrapper launches fixture preparation and measurement as sibling processes. These corrected Linux release measurements passed, with the same content bytes, matches and warnings as the local fixtures:
+
+| Directory entries | First page | Second page | Peak RSS |
+| ---: | ---: | ---: | ---: |
+| 1,000 | 473 ms | 1 ms (empty) | 27,238,400 bytes |
+| 10,000 | 473 ms | 488 ms | 29,102,080 bytes |
+| 100,000 | 518 ms | 528 ms | 28,618,752 bytes |
+
+See [pagination](PAGINATION.md) and [large files](LARGE_FILES.md) for exact commands and interpretation.
 
 ## Next-session opportunities
 
