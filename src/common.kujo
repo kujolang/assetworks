@@ -72,6 +72,7 @@ export func bounded_int(value, fallback, minimum, maximum) {
     if type(value) == "null" || value == "" { return {"ok": true, "value": fallback} }
     text := to_string(value)
     if !regex_match(text, "^[0-9]+$") { return {"ok": false, "code": "invalid_number", "error": "expected an integer"} }
+    if len(text) > 10 { return {"ok": false, "code": "out_of_range", "error": "integer exceeds supported bounds"} }
     number := to_int(text)
     if number < minimum || number > maximum { return {"ok": false, "code": "out_of_range", "error": "value must be " + to_string(minimum) + ".." + to_string(maximum)} }
     return {"ok": true, "value": number}

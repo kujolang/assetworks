@@ -1,0 +1,32 @@
+from src.filesystem import confined_read, confined_write
+from src.core import dispatch
+from src.args import parse_args
+from tests.support import test_root, cleanup_tree, make_link
+mut passed := 0; mut failed := 0
+func check(ok, label) { if ok { passed = passed + 1 } else { failed = failed + 1; eprint("FAIL: " + label) } }
+func refuses_write(path) { try { confined_write(path, "intrusion", true); return false } except error { return true } }
+func refuses_read(path) { try { confined_read(path, 100); return false } except error { return true } }
+root := test_root("confined"); outside := root + "-outside"
+create_dir(root); create_dir(outside)
+confined_write(root + "/nested/control.txt", "control", false)
+check(confined_read(root + "/nested/control.txt", 100) == "control", "confined normal read/write")
+check(refuses_write(root + "/nested/../escape"), "confined write rejects traversal")
+write_file(outside + "/secret.txt", "outside", true)
+linked := make_link(outside, root + "/link", true)
+if linked.exitcode == 0 {
+    check(refuses_write(root + "/link/new.txt"), "ancestor symlink cannot redirect a write")
+    check(refuses_read(root + "/link/secret.txt"), "ancestor symlink cannot redirect a read")
+    check(!file_exists(outside + "/new.txt"), "outside remains unchanged")
+    make_link(outside + "/absent.txt", root + "/dangling", false)
+    check(refuses_write(root + "/dangling"), "dangling final link rejected")
+    check(refuses_read(root + "/dangling"), "dangling read rejected")
+    check(!file_exists(outside + "/absent.txt"), "dangling target was not created")
+    rename_file(root + "/nested", root + "/parked")
+    make_link(outside, root + "/nested", true)
+    check(refuses_write(root + "/nested/secret.txt"), "renamed ancestor replacement cannot redirect write")
+    check(refuses_read(root + "/nested/secret.txt"), "renamed ancestor replacement cannot redirect read")
+    check(read_file(outside + "/secret.txt") == "outside", "replacement leaves outside file intact")
+} else { eprint("symlink fixtures unavailable on this host"); exit(1) }
+cleanup_tree(root); cleanup_tree(outside)
+print(to_string(passed) + " passed; " + to_string(failed) + " failed")
+if failed > 0 { exit(1) }

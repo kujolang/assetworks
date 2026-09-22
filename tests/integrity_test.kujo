@@ -1,0 +1,59 @@
+from tests.support import test_root, cleanup_tree, make_link
+from src.core import dispatch
+from src.args import parse_args
+from src.audit import event_id, reconcile_record
+from src.storage import protected_output
+mut passed := 0; mut failed := 0
+func check(ok, label) { if ok { passed = passed + 1 } else { failed = failed + 1; eprint("FAIL: " + label) } }
+func opts(values) { return parse_args(values, ["json", "force", "dry-run"]) }
+root := test_root("assetworks-integrity")
+created := dispatch("plan", opts(["--state", root, "--input", "fixtures/core.json", "--actor", "tester", "--id", "plan-audit"]))
+check(created["ok"], "record created")
+record := created["value"]["record"]; path := root + "/records/plan-audit.json"
+event_path := root + "/history/" + event_id(record) + ".json"
+original := read_file(path); original_event := read_file(event_path)
+check(dispatch("validate", opts(["--state", root]))["ok"], "legitimate state validates")
+payload := record["payload"]; payload["operation"] = "edited"; record["payload"] = payload
+write_file(path, to_json_pretty(record) + "\n", true)
+changed := dispatch("validate", opts(["--state", root, "--id", "plan-audit"]))
+check(!changed["ok"] && changed["code"] == "history_checksum_drift", "changed domain-valid record fails exact checksum")
+write_file(path, original, true)
+delete_file(event_path)
+missing := dispatch("validate", opts(["--state", root, "--id", "plan-audit"]))
+check(!missing["ok"] && missing["code"] == "history_missing", "missing event rejected")
+write_file(event_path, original_event, true)
+event := parse_json(original_event); event["actor"] = "other-actor"; write_file(event_path, to_json(event), true)
+check(!dispatch("validate", opts(["--state", root, "--id", "plan-audit"]))["ok"], "changed audit actor rejected")
+write_file(event_path, "{", true)
+check(!dispatch("validate", opts(["--state", root]))["ok"], "malformed event rejected")
+write_file(event_path, original_event, true)
+copy_path := root + "/history/00000000000000000000000000000000.json"; write_file(copy_path, original_event, true)
+check(!dispatch("validate", opts(["--state", root]))["ok"], "duplicate under wrong event name rejected")
+delete_file(copy_path)
+write_file(root + "/history/.json", "{", true)
+check(!dispatch("validate", opts(["--state", root]))["ok"], "empty event filename cannot escape validation")
+delete_file(root + "/history/.json")
+delete_file(path)
+check(!dispatch("validate", opts(["--state", root]))["ok"], "orphan event rejected independently of record listing")
+write_file(path, original, true)
+history := dispatch("history", opts(["--state", root, "--limit", "1"]))
+check(history["ok"] && history["value"]["events"][0]["event"]["event"] == "record.created", "history exposes events")
+cursor := history["value"]["events"][0]["id"]
+check(len(dispatch("history", opts(["--state", root, "--after", cursor]))["value"]["events"]) == 0, "history event cursor works")
+for target in ["metadata.json", "records/plan-audit.json", "records/new.json", "history/new.json", "locks/new.json", "transactions/new.json"] {
+    result := dispatch("export", opts(["--state", root, "--output", root + "/" + target, "--force"]))
+    check(!result["ok"] && result["code"] == "unsafe_output", "managed destination rejected " + target)
+}
+check(read_file(path) == original && read_file(event_path) == original_event, "protected bytes unchanged")
+check(protected_output("/", "/records/new.json") != "", "filesystem root protects all descendants")
+check(protected_output(root, root + "/./records/new.json") != "", "dotted alias protected")
+check(protected_output(root, root + "-backup/export.json") == "", "component-aware sibling remains allowed")
+external := root + "-export.json"
+check(dispatch("export", opts(["--state", root, "--output", external]))["ok"], "ordinary export succeeds")
+check(dispatch("export", opts(["--state", root, "--output", external, "--force"]))["ok"], "explicit external replacement succeeds")
+config_path := root + "-config.json"; write_file(config_path, to_json({"state": root}), true)
+check(!dispatch("export", opts(["--config", config_path, "--output", path, "--force"]))["ok"], "config-selected state protected")
+delete_file(config_path); delete_file(external); delete_file(path); delete_file(event_path); delete_file(root + "/metadata.json")
+cleanup_tree(root)
+print(to_string(passed) + " passed; " + to_string(failed) + " failed")
+if failed > 0 { exit(1) }

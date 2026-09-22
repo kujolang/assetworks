@@ -1,0 +1,69 @@
+from src.filesystem import confined_read
+from src.common import get, safe_id, valid_timestamp, parse_object
+from src.storage import history_dir, load_record, validate_state_path
+
+export func event_id(record) { return substring(sha256(record["created_at"] + "\n" + record["id"]), 0, 32) }
+export func safe_event_id(id) { return type(id) == "string" && regex_match(id, "^[a-f0-9]{32}$") }
+
+func failure(code, error) { return {"ok": false, "code": code, "error": error} }
+
+export func load_event(state, id) {
+    if !safe_event_id(id) { return failure("invalid_event_id", "event filename must be 32 lowercase hex characters") }
+    dir := history_dir(state)
+    problem := validate_state_path(dir)
+    if problem != "" { return failure("unsafe_state", problem) }
+    path := dir + "/" + id + ".json"
+    if !path_is_file(path) || path_is_symlink(path) { return failure("history_missing", "audit event is missing or unsafe: " + id) }
+    if file_size(path) > 32768 { return failure("history_too_large", "audit event exceeds 32 KiB") }
+    mut event_contents := ""
+    try { event_contents = confined_read(path, 32768) } except error { return failure("unsafe_event", "audit event read failed") }
+    parsed := parse_object(event_contents, "audit event"); if !parsed["ok"] { return parsed }
+    event := parsed["value"]
+    if get(event, "schema_version", "") != "1.0.0" || get(event, "event", "") != "record.created" || !safe_id(get(event, "record_id", "")) || !valid_timestamp(get(event, "at", "")) { return failure("invalid_event", "audit event schema, type, record id or timestamp is invalid") }
+    actor := get(event, "actor", null); event_checksum := get(event, "record_sha256", null)
+    if type(actor) != "string" || trim(actor) == "" || len(actor) > 256 || !regex_match(actor, "^[^\\x00-\\x1F\\x7F]+$") { return failure("invalid_event", "audit actor is invalid") }
+    if type(event_checksum) != "string" || !regex_match(event_checksum, "^[a-f0-9]{64}$") { return failure("invalid_event", "audit checksum is invalid") }
+    expected := substring(sha256(event["at"] + "\n" + event["record_id"]), 0, 32)
+    if expected != id { return failure("event_id_mismatch", "audit event does not match its filename") }
+    return {"ok": true, "value": event}
+}
+
+func compare_event(event, record, checksum) {
+    if event["record_id"] != get(record, "id", "") || event["actor"] != get(record, "actor", "") || event["at"] != get(record, "created_at", "") { return failure("history_mismatch", "audit event identity does not match record") }
+    if event["record_sha256"] != checksum { return failure("history_checksum_drift", "record bytes no longer match their creation event") }
+    return {"ok": true}
+}
+
+export func reconcile_record(state, record, checksum) {
+    if !valid_timestamp(get(record, "created_at", "")) || !safe_id(get(record, "id", "")) { return failure("invalid_record", "record identity is invalid") }
+    loaded := load_event(state, event_id(record)); if !loaded["ok"] { return loaded }
+    return compare_event(loaded["value"], record, checksum)
+}
+
+export func list_history(state, after, limit, reconcile) {
+    mut events := []; mut warnings := []; mut truncated := false; mut scanned := 0; mut next_after := after
+    dir := history_dir(state); problem := validate_state_path(dir)
+    if problem != "" { return {"events": [], "warnings": [{"id": "", "code": "unsafe_state", "error": problem}], "truncated": false, "next_after": after} }
+    if !path_is_dir(dir) { return {"events": [], "warnings": [], "truncated": false, "next_after": after} }
+    for name in sort(list_dir(dir)) {
+        if ends_with(name, ".json") {
+            id := substring(name, 0, len(name) - 5)
+            if after == "" || id > after {
+                if scanned >= limit { truncated = true; break }
+                scanned = scanned + 1; next_after = id
+                loaded := load_event(state, id)
+                if loaded["ok"] {
+                    event := loaded["value"]
+                    events = push(events, {"id": id, "event": event})
+                    if reconcile {
+                        record := load_record(state, event["record_id"])
+                        if !record["ok"] { loaded = failure("orphan_event", "event has no readable record") }
+                        else { loaded = compare_event(event, record["value"], record["checksum"]) }
+                    }
+                }
+                if !loaded["ok"] { warnings = push(warnings, {"id": id, "code": loaded["code"], "error": loaded["error"]}) }
+            }
+        }
+    }
+    return {"events": events, "warnings": warnings, "truncated": truncated, "next_after": next_after}
+}

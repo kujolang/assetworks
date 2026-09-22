@@ -1,0 +1,24 @@
+from src.filesystem import is_link
+export func test_root(label) {
+    parent := env("TMPDIR")
+    if type(parent) != "string" || parent == "" { parent = env("TEMP") }
+    if type(parent) != "string" || parent == "" { parent = "/tmp" }
+    absolute := replace_str(path_absolute(parent), "\\", "/")
+    if starts_with(absolute, "//?/") { absolute = substring(absolute, 4, len(absolute)) }
+    return absolute + "/assetworks-" + label + "-" + uuid_v4()
+}
+export func cleanup_tree(path) {
+    if is_link(path) { try { delete_file(path) } except error { os_rmdir(path) }; return }
+    if path_is_dir(path) { for name in list_dir(path) { cleanup_tree(path + "/" + name) }; os_rmdir(path) }
+    else if file_exists(path) { delete_file(path) }
+}
+
+export func make_link(target, link, directory) {
+    if env("OS") == "Windows_NT" {
+        command := ["cmd.exe", "/c", "mklink"]
+        if directory { command = push(command, "/D") }
+        command = concat(command, [link, target])
+        return spawn_process(command, {"timeout_ms": 5000, "max_output_bytes": 4096})
+    }
+    return spawn_process(["ln", "-s", target, link], {"timeout_ms": 5000, "max_output_bytes": 4096})
+}

@@ -2,6 +2,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KUJO_RUNTIME="${KUJO_BIN:-$ROOT/../kujo/target/release/kujo}"
+if [[ ! -x "$KUJO_RUNTIME" && -x "$KUJO_RUNTIME.exe" ]]; then KUJO_RUNTIME="$KUJO_RUNTIME.exe"; fi
 if [[ ! -x "$KUJO_RUNTIME" ]] && command -v kujo >/dev/null 2>&1; then KUJO_RUNTIME="$(command -v kujo)"; fi
 if [[ ! -x "$KUJO_RUNTIME" ]]; then printf 'assetworks: Kujo runtime not found; set KUJO_BIN.\n' >&2; exit 2; fi
 cd "$ROOT"
@@ -12,6 +13,10 @@ cd "$ROOT"
 "$KUJO_RUNTIME" run tests/domain_test.kujo
 "$KUJO_RUNTIME" run tests/hardening_test.kujo
 "$KUJO_RUNTIME" run tests/review_test.kujo
+"$KUJO_RUNTIME" run tests/integrity_test.kujo
+"$KUJO_RUNTIME" run tests/contracts_test.kujo
+"$KUJO_RUNTIME" run tests/filesystem_test.kujo
+KUJO_BIN="$KUJO_RUNTIME" "$KUJO_RUNTIME" run tests/recovery_test.kujo
 KUJO_BIN="$KUJO_RUNTIME" bash scripts/contention_benchmark.sh
 while IFS= read -r document; do "$KUJO_RUNTIME" run scripts/validate_json.kujo -- "$document"; done < <(find fixtures schemas -type f -name '*.json' -print | sort)
 tmp_state="$(mktemp -d)"; tmp_state="$(cd "$tmp_state" && pwd -P)"; trap 'find "$tmp_state" -depth -delete' EXIT

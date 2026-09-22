@@ -1,0 +1,41 @@
+// Anchor effects at the filesystem root and traverse every remaining component
+// with Kujo's descriptor-relative no-follow primitives.
+export func confined_path(path) {
+    if type(path) != "string" || trim(path) == "" || regex_match(path, "[\\x00]") { throw("invalid filesystem path") }
+    normalized := replace_str(path, "\\", "/")
+    if starts_with(normalized, "//?/") { normalized = substring(normalized, 4, len(normalized)) }
+    if starts_with(normalized, "//") { throw("UNC paths are not supported; use a local volume") }
+    if !starts_with(normalized, "/") && !regex_match(normalized, "^[A-Za-z]:/") { normalized = replace_str(path_absolute("."), "\\", "/") + "/" + normalized }
+    if starts_with(normalized, "//?/") { normalized = substring(normalized, 4, len(normalized)) }
+    anchor := "/"
+    if regex_match(normalized, "^[A-Za-z]:/") { anchor = substring(normalized, 0, 3); normalized = substring(normalized, 3, len(normalized)) }
+    mut components := []
+    for part in split(normalized, "/") {
+        if part == ".." || contains(part, ":") == 1 { throw("unsafe filesystem component") }
+        if part != "" && part != "." { components = push(components, part) }
+    }
+    if len(components) == 0 { throw("path must name a file") }
+    return {"root": anchor, "relative": join(components, "/")}
+}
+
+export func confined_read(path, maximum) {
+    target := confined_path(path)
+    return read_file_beneath(target["root"], target["relative"], maximum)
+}
+
+export func confined_write(path, content, overwrite) {
+    target := confined_path(path)
+    return write_file_atomic_beneath(target["root"], target["relative"], content, overwrite)
+}
+
+export func is_link(path) { try { return path_is_symlink(path) } except error { return false } }
+
+export func ensure_managed_dir(path) {
+    marker := path + "/.assetworks-directory"
+    try { confined_write(marker, "AssetWorks managed directory\n", false) }
+    except error {
+        try { if confined_read(marker, 128) == "AssetWorks managed directory\n" { return "" } } except read_error {}
+        return "cannot safely initialize managed directory: " + path
+    }
+    return ""
+}

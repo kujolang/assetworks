@@ -18,3 +18,14 @@ for pid in "${pids[@]}"; do wait "$pid"; done
 count="$(find "$STATE/records" -type f -name 'plan-benchmark-*.json' | wc -l | tr -d ' ')"
 test "$count" = 32
 printf 'AssetWorks contention benchmark passed: platform=%s workers=32 records=%s\n' "$(uname -s)" "$count"
+SAME_STATE="${STATE%/state}/same-state"
+RECEIPTS="${STATE%/state}/receipts"
+mkdir "$RECEIPTS"
+pids=()
+for i in $(seq 1 32); do
+  KUJO_BIN="$KUJO_RUNTIME" "$ROOT/bin/assetworks" plan --state "$SAME_STATE" --input "${STATE%/state}/input-1.json" --actor benchmark --timestamp "2026-09-22T00:00:00Z" --id plan-contended --json >"$RECEIPTS/worker-$i.json" &
+  pids+=("$!")
+done
+for pid in "${pids[@]}"; do if wait "$pid"; then :; fi; done
+cd "$ROOT"
+"$KUJO_RUNTIME" run tests/contention_receipts.kujo -- "$SAME_STATE" "$RECEIPTS"

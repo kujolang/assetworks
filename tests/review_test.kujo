@@ -1,3 +1,4 @@
+from tests.support import test_root, cleanup_tree, make_link
 from src.core import dispatch
 from src.args import parse_args
 from src.common import valid_timestamp
@@ -6,7 +7,7 @@ from src.storage import initialize, save_new
 mut passed := 0; mut failed := 0
 func check(ok, label) { if ok { passed = passed + 1 } else { failed = failed + 1; eprint("FAIL: " + label) } }
 func opts(values) { return parse_args(values, ["json", "dry-run", "force"]) }
-root := path_absolute("/tmp") + "/assetworks-review-" + uuid_v4()
+root := test_root("assetworks-review")
 preview := dispatch("plan", opts(["--state", root, "--input", "fixtures/core.json", "--actor", "tester", "--dry-run"]))
 check(preview["ok"] && preview["value"]["dry_run"], "dry run returns proposed record")
 check(!file_exists(root), "dry run creates no state")
@@ -33,7 +34,7 @@ doctor := dispatch("doctor", opts(["--state", root]))
 check(!doctor["ok"] && doctor["code"] == "inspection_incomplete" && doctor["value"]["truncated"], "truncated doctor cannot claim health")
 check(dispatch("validate", opts(["--state", root, "--id", "plan-template"]))["ok"], "explicit validation reaches record beyond first page")
 outside := root + "-outside"; create_dir(outside)
-linked := spawn_process(["ln", "-s", outside, root + "-link"], {"timeout_ms": 5000, "max_output_bytes": 4096})
+linked := make_link(outside, root + "-link", true)
 if linked.exitcode == 0 {
     unsafe := root + "-link/nested"
     check(!dispatch("init", opts(["--state", unsafe]))["ok"], "symlinked ancestor rejected")
@@ -42,9 +43,6 @@ if linked.exitcode == 0 {
     check(!file_exists(outside + "/export.json"), "export does not write through symlink")
     delete_file(root + "-link")
 }
-for name in list_dir(root + "/records") { delete_file(root + "/records/" + name) }
-for name in list_dir(root + "/history") { delete_file(root + "/history/" + name) }
-for name in ["records", "history", "locks"] { os_rmdir(root + "/" + name) }
-delete_file(root + "/metadata.json"); os_rmdir(root); os_rmdir(outside)
+cleanup_tree(root); cleanup_tree(outside)
 print(to_string(passed) + " passed; " + to_string(failed) + " failed")
 if failed > 0 { exit(1) }

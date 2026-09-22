@@ -5,27 +5,9 @@ on:
 permissions:
   contents: read
 env:
-  KUJO_COMMIT: 5059695d14d6726bc17fef55e0b95511624967cf
+  KUJO_COMMIT: 599866bef0beb042c07751b77aa538db7f1a696c
 jobs:
-  kujo-native:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
-        with:
-          repository: kujolang/kujo
-          ref: ${{ env.KUJO_COMMIT }}
-          path: .runtime/kujo
-      - uses: dtolnay/rust-toolchain@6d653acede28d24f02e3cd41383119e8b1b35921
-        with:
-          toolchain: stable
-      - name: Build pinned Kujo runtime
-        run: cargo build --release --manifest-path .runtime/kujo/Cargo.toml
-      - name: Validate
-        env:
-          KUJO_BIN: ${{ github.workspace }}/.runtime/kujo/target/release/kujo
-        run: bash scripts/validate.sh
-  contention-matrix:
+  full-suite-matrix:
     strategy:
       fail-fast: false
       matrix:
@@ -51,4 +33,4 @@ jobs:
       - shell: bash
         env:
           KUJO_BIN: ${{ github.workspace }}/.runtime/kujo/target/release/kujo
-        run: bash scripts/contention_benchmark.sh
+        run: bash scripts/validate.sh
