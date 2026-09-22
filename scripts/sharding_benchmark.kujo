@@ -1,4 +1,4 @@
-from src.filesystem import confined_read, collection_path, directory_page, page_cursor
+from src.filesystem import confined_path, confined_read, collection_path, directory_page, page_cursor
 from src.migration import migrate_state
 from tests.support import test_root, cleanup_tree
 arguments := args()
@@ -15,13 +15,14 @@ if !migrated["ok"] { eprint(to_json(migrated)); throw("migration failed") }
 start = current_timestamp(); first := directory_page(target+"/records","",1000); first_ms := current_timestamp()-start
 if !first["ok"] || len(first["names"])==0 || first["scanned"]>=count { throw("sharded first page must avoid scanning the whole collection") }
 mut after := ""; mut done := false; mut observed := 0; mut pages := 0
+locator := confined_path(target+"/records")
 start = current_timestamp()
 while !done {
     page := directory_page(target+"/records",after,1000)
     if !page["ok"] { throw(page["error"]) }
     for name in page["names"] {
         expected := to_string(to_int(substring(name,5,len(name)-5))-1000000)
-        if confined_read(collection_path(target+"/records",name),32)!=expected { throw("migrated byte drift") }
+        if read_file_beneath(locator["root"],locator["relative"]+"/"+page["shard"]+"/"+name,32)!=expected { throw("migrated byte drift") }
         observed = observed+1
     }
     pages = pages+1; done = !page["truncated"]

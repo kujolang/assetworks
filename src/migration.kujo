@@ -1,4 +1,4 @@
-from src.filesystem import confined_read, confined_write, confined_copy, collection_sharded, collection_path, directory_page, page_cursor, is_link
+from src.filesystem import confined_path, confined_read, confined_write, confined_copy, collection_sharded, collection_path, directory_page, page_cursor, is_link
 from src.storage import protected_output, validate_state_path
 from src.common import get
 
@@ -18,6 +18,7 @@ export func migrate_state(source, destination) {
             confined_write(destination+"/"+collection+"/.assetworks-shards","sha256-256-v1\n",false)
             input := source+"/"+collection
             sharded := collection_sharded(input)
+            input_locator := confined_path(input); output_locator := confined_path(destination+"/"+collection)
             mut after := ""; mut done := false
             while !done {
                 mut names := []; mut next := after
@@ -38,7 +39,9 @@ export func migrate_state(source, destination) {
                 }
                 for name in names {
                     if type(name)!="string" || !regex_match(name,"^[a-z0-9][a-z0-9-]{1,127}\\.json$") { throw("unsafe collection filename") }
-                    receipt := confined_copy(collection_path(input,name),collection_path(destination+"/"+collection,name),4194304)
+                    shard := substring(sha256(name),0,2)
+                    source_relative := name; if sharded { source_relative=shard+"/"+name }
+                    receipt := copy_file_beneath(input_locator["root"],input_locator["relative"]+"/"+source_relative,output_locator["root"],output_locator["relative"]+"/"+shard+"/"+name,4194304)
                     count = count+1; total_bytes = total_bytes+receipt["bytes"]
                 }
                 if !done && next == after { throw("migration cursor did not advance") }
