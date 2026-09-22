@@ -45,7 +45,7 @@ config["offline"] = true; config["timeout_ms"] = 1; write_file(config_path, to_j
 // Use real pixel work so this exercises termination, not a scheduling race.
 payload["input_format"] = "png"; payload["output_format"] = "png"; payload["width"] = 8192; payload["height"] = 8192; write_file(payload_path, to_json(payload), true)
 timed := dispatch("resize", opts(["--state",root,"--input",payload_path,"--actor","adapter-test","--path",path_absolute("fixtures/media/input.png"),"--adapter-config",config_path,"--id","transform-timeout"]))
-check(!timed["ok"] && get(timed,"timed_out",false), "adapter reports actual process timeout without successful receipt")
+check(!timed["ok"] && get(get(timed,"value",{}),"timed_out",false), "adapter reports actual process timeout without successful receipt")
 check(!file_exists(root + "/records/transform-timeout.json"), "failed adapter creates no record")
 cleanup_tree(root); cleanup_tree(config_path); cleanup_tree(payload_path)
 print(to_string(passed) + " passed; " + to_string(failed) + " failed")
