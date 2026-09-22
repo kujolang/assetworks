@@ -11,7 +11,7 @@ AssetWorks is a local-first Kujo tool for media asset planning, immutable proven
 
 Plan media work, record transformation intents, bind files to manifests and accessibility records, inspect and export local records, and validate attached file checksums. Core commands run offline in Kujo, with no required hosted service or model credentials. Transform commands record intent; they do not execute FFmpeg or an image processor.
 
-Records have stable IDs, actors, timestamps and append-only creation events. Storage uses per-record locks and atomic individual file writes. This is an operator-controlled local tool: record/event crash recovery and audit reconciliation still need work before broader enterprise readiness claims.
+Records have stable IDs, actors, timestamps and append-only creation events. Storage uses immutable transaction journals and atomic no-replace writes. Validation reconciles exact record bytes with their creation events and detects orphan events. [Recovery](docs/RECOVERY.md) replays interrupted transactions without overwriting existing evidence. This remains an operator-controlled local tool, not a hosted multi-tenant service.
 
 Standalone library helpers cover adapter receipts, probe metadata, bounded large-file hashing and shared-key HMAC authentication. They are not integrated CLI capabilities, and the current tests do not establish multi-gigabyte performance.
 
@@ -19,7 +19,7 @@ See the [September review and prioritized next-session worklist](docs/REVIEW_202
 
 ## Quick install
 
-The declared minimum is Kujo 1.0.1; this review was verified locally with Kujo 1.4.0 on macOS. Full-suite support across versions and platforms remains to be established.
+This development version requires Kujo 1.4.0 with confined filesystem primitives. CI pins source revision `599866bef0beb042c07751b77aa538db7f1a696c`; use that build for reproducibility rather than assuming every binary labeled 1.4.0 includes these preview APIs. Full-suite Linux/macOS/Windows verification is in progress.
 
 ```bash
 git clone https://github.com/kujolang/assetworks.git
@@ -43,9 +43,11 @@ Run `assetworks --help` for the complete command surface. Common flags include `
 
 State defaults to `.assetworks/`. Use operator-controlled directories and canonical paths without symlinked ancestors. Inputs and individual records are capped at 1 MiB; CLI attachments are capped at 64 MiB. `--dry-run` validates a proposed record without creating state. It does not reserve an ID.
 
-Lists and exports return at most 1,000 records; paginate with `--after` using the last returned ID. Doctor and whole-state validation fail with an incomplete result if more records exist. Validate additional records individually with `--id`. Keep exports outside the state directory, especially when using `--force`.
+Lists and exports return at most 1,000 records; paginate with `--after` using the last returned ID. Doctor and whole-state validation fail with an incomplete result if more records exist. Validate additional records individually with `--id`. Exports into the active state directory are refused even with `--force`. Case-equivalent state names are conservatively reserved across platforms.
 
-Local checksum validation detects attached file drift; it does not yet authenticate the audit history or protect against an operator who can edit state files.
+Validation checks attached-file drift, exact record/event checksums, orphan events and transaction completeness. It does not authenticate evidence against an operator who can rewrite all state files. `history` lists creation events and accepts its returned event cursor with `--after`.
+
+For a complete runnable plan → manifest → captions/transcript → validate → export example, see [the licensed media walkthrough](examples/README.md).
 
 ## Project structure
 

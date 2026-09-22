@@ -1,0 +1,27 @@
+from src.core import dispatch
+from src.args import parse_args
+from src.filesystem import confined_write
+options := args()
+if len(options) != 1 { eprint("usage: kujo run examples/walkthrough.kujo -- NEW_OUTPUT_DIRECTORY"); exit(2) }
+output_dir := options[0]
+if file_exists(output_dir) { eprint("choose a new output directory so immutable IDs are preserved"); exit(1) }
+state := output_dir + "/state"
+func invoke(command, flags) {
+    parsed := parse_args(concat(["--state", state, "--actor", "walkthrough-author"], flags), ["json", "force", "dry-run"])
+    result := dispatch(command, parsed)
+    if !result["ok"] { eprint(to_json(result)); exit(1) }
+    print(to_json({"command": command, "ok": true, "data": result["value"]}))
+    return result
+}
+func payload_file(name, value) { path := output_dir + "/" + name + ".json"; confined_write(path, to_json(value), false); return path }
+plan := payload_file("plan", {"schema_version":"1.0.0","source_id":"two-shapes","operation":"catalog-accessibility","output_name":"two-shapes.svg"})
+manifest := payload_file("manifest", {"schema_version":"1.0.0","asset_id":"two-shapes","media_type":"image/svg+xml","rights_reference":"CC0-1.0: examples/media/LICENSE","accessibility_status":"described"})
+captions := payload_file("captions", {"schema_version":"1.0.0","asset_id":"two-shapes","language":"en","format":"vtt"})
+transcript := payload_file("transcript", {"schema_version":"1.0.0","asset_id":"two-shapes","language":"en","format":"text"})
+invoke("plan", ["--id","plan-walkthrough","--input",plan])
+invoke("manifest", ["--id","manifest-walkthrough","--input",manifest,"--path",path_absolute("examples/media/sample.svg")])
+invoke("captions", ["--id","caption-walkthrough","--input",captions,"--path",path_absolute("examples/media/captions.vtt")])
+invoke("transcript", ["--id","transcript-walkthrough","--input",transcript,"--path",path_absolute("examples/media/transcript.txt")])
+validation := invoke("validate", [])
+if validation["value"]["checked"] != 4 || validation["value"]["history_checked"] != 4 { eprint("walkthrough did not validate four record/event pairs"); exit(1) }
+invoke("export", ["--output", output_dir + "/export.json"])
