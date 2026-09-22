@@ -23,7 +23,7 @@ The source requirement is Kujo `4e987a4e10d4b45621805e5acb420de4c9824b90`, a pub
 
 Local native verification passed 16 confined filesystem unit tests, focused filesystem integration checks, digest VM/interpreter parity and directory-page capability checks. A broader reduced-feature integration run passed 87 of 88 tests: its database misuse test expected the database feature omitted from that build. That is a build-feature limitation, not a passing full-runtime result. Platform application CI builds the default runtime features. The pinned runtime also passed its [descriptor-relative filesystem conformance matrix on Linux, macOS and Windows](https://github.com/kujolang/kujo/actions/runs/35751023004).
 
-The local complete gate passed 178 assertions from clean checkout `1f2478e`, including real adapters, Windows path normalization and schema/authentication changes; both contention scenarios and remaining gate checks passed. The subsequent error-code compatibility regression test passed its affected suite. Exact final CI and benchmark receipts will be recorded after those runs finish.
+The local complete gate passed 178 assertions from clean checkout `1f2478e`, including real adapters, Windows path normalization and schema/authentication changes; both contention scenarios and remaining gate checks passed. The subsequent artifact-error and prefix-cursor fixes passed the complete local gate at `57ba330` (182 assertions plus both contention scenarios and remaining checks). Exact final CI and benchmark receipts will be recorded after those runs finish.
 
 ## Measured limits
 
@@ -43,7 +43,15 @@ Fresh-process page measurements exclude fixture generation. Every first page rea
 | 10,000 | 8,924 ms | 8,409 ms | 29,302,784 bytes |
 | 100,000 | 9,155 ms | 9,738 ms | 29,261,824 bytes |
 
-Optimized CI measurements remain pending. See [pagination](PAGINATION.md) and [large files](LARGE_FILES.md) for exact commands and interpretation.
+The initial Linux release run (revision `a765831`, [CI run](https://github.com/kujolang/assetworks/actions/runs/35751403258)) passed the complete application suite and benchmarks. Streaming release results were:
+
+| Artifact bytes | Manifest creation | Validation | Peak RSS |
+| ---: | ---: | ---: | ---: |
+| 68,157,440 | 65 ms | 61 ms | 30,146,560 bytes |
+| 1,073,741,824 | 838 ms | 766 ms | 30,003,200 bytes |
+| 4,294,967,296 | 3,298 ms | 3,029 ms | 29,741,056 bytes |
+
+The first Linux scale-memory results were not accepted as isolated page measurements: a forked measurement child can inherit its fixture-generating parent's peak RSS. The corrected shell wrapper launches fixture preparation and measurement as sibling processes. Corrected optimized scale receipts remain pending. See [pagination](PAGINATION.md) and [large files](LARGE_FILES.md) for exact commands and interpretation.
 
 ## Next-session opportunities
 

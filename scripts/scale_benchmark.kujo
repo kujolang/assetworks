@@ -1,7 +1,6 @@
-// Generate fixtures in a parent process; measure pages in a fresh child so peak
-// RSS excludes allocation history from fixture generation. No durability claim.
+// Run preparation and inspection as separate sibling processes from the shell
+// wrapper; forked children may inherit their parent's peak RSS on Linux.
 from src.storage import list_records
-from tests.support import test_root, cleanup_tree
 func measure(root,count) {
 start := current_timestamp(); page := list_records(root,"manifest","",1000); elapsed := current_timestamp()-start
 if page["directory_entries_scanned"]!=count || len(page["warnings"])!=100 || page["truncated"]!=(count>1000) { print(to_json(page)); throw("scale benchmark page contract failed") }
@@ -10,19 +9,15 @@ usage := process_usage()
 print(to_json({"directory_entries":count,"first_page_ms":elapsed,"second_page_ms":next_ms,"peak_rss_bytes":usage["peak_rss_bytes"],"cpu_seconds":usage["cpu_seconds"],"returned_records":len(page["records"]),"warnings":len(page["warnings"]),"read_bytes":page["read_bytes"],"next_after":page["next_after"],"verified":true}))
 }
 arguments := args()
-if len(arguments)==3 && arguments[0]=="inspect" { measure(arguments[1],to_int(arguments[2])); exit(0) }
-count := to_int(arguments[len(arguments)-1])
+if len(arguments)!=3 { throw("use scripts/scale_benchmark.sh COUNT") }
+mode := arguments[0]; root := arguments[1]; count := to_int(arguments[2])
 if count < 1000 || count > 100000 { throw("scale count must be 1000..100000") }
-root := test_root("scale-benchmark"); create_dir(root); create_dir(root+"/records")
+if mode=="inspect" { measure(root,count); exit(0) }
+if mode!="prepare" || file_exists(root) { throw("prepare requires a new explicit fixture directory") }
+create_dir(root); create_dir(root+"/records")
 for index in range(0,count) {
     id := "plan-"+to_string(1000000+index); kind := "plan"; if index%3==0 { kind="manifest" }
     contents := to_json({"id":id,"record_type":kind,"payload":{"fixture":true}})
     if index%10==0 { contents="{" }
     write_file(root+"/records/"+id+".json",contents,true)
 }
-runtime := env("KUJO_BIN")
-if type(runtime)!="string" || runtime=="" { cleanup_tree(root); throw("set KUJO_BIN explicitly for isolated scale measurement") }
-result := spawn_process([runtime,"run",path_absolute("scripts/scale_benchmark.kujo"),"--","inspect",root,to_string(count)],{"timeout_ms":300000,"max_output_bytes":8192})
-print(result.stdout)
-cleanup_tree(root)
-if result.exitcode!=0 || result.timed_out || result.stdout_truncated { eprint(result.stderr); throw("isolated scale measurement failed") }

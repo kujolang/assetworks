@@ -10,4 +10,4 @@ Record pages read at most 8 MiB of record contents, history pages reserve at mos
 
 These cursors are not snapshot tokens. Stop writers and protect the state directory when performing a complete audit; concurrent insertion before an already consumed cursor requires restarting from the beginning. `--id` remains the focused validation path.
 
-Reproduce mixed/corrupt scale measurements with `KUJO_BIN=/absolute/path/to/kujo kujo run scripts/scale_benchmark.kujo -- 1000` (also 10000 and 100000). Synthetic files intentionally bypass durability writes and measure page IO, not transaction throughput. Page timings and peak RSS come from a fresh child process, excluding fixture generation.
+Reproduce mixed/corrupt scale measurements with `KUJO_BIN=/absolute/path/to/kujo bash scripts/scale_benchmark.sh 1000` (also 10000 and 100000). Synthetic files intentionally bypass durability writes and measure page IO, not transaction throughput. Page timings and peak RSS come from a fresh sibling process, excluding fixture generation and inherited parent peak RSS.

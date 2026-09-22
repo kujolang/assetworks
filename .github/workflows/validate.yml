@@ -85,5 +85,5 @@ jobs:
             .runtime/kujo/target/release/kujo run scripts/streaming_benchmark.kujo -- "$size"
           done
           for count in 1000 10000 100000; do
-            .runtime/kujo/target/release/kujo run scripts/scale_benchmark.kujo -- "$count"
+            bash scripts/scale_benchmark.sh "$count"
           done
