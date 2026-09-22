@@ -1,6 +1,6 @@
 # Bounded listing and validation
 
-`list`, `history`, `export` and whole-state `validate` inspect at most `--limit` directory entries (1..1000), including internal markers and corrupt names. A selective filter can return an empty page with `truncated: true`. Always resume with the returned `next_after`, rather than the last returned record. Legacy record/event ID cursors remain accepted; new opaque `file:` cursors also advance past malformed names.
+`report`, `history`, `export` and whole-state `validate` inspect at most `--limit` directory entries (1..1000), including internal markers and corrupt names. A selective filter can return an empty page with `truncated: true`. Always resume with the returned `next_after`, rather than the last returned record. Legacy record/event ID cursors remain accepted; new opaque `file:` cursors also advance past malformed names.
 
 The native iterator retains at most 1001 names, scans at most 100,000 directory entries, and rejects a directory beyond that bound. It opens every directory component without following symlinks. Each page may scan the directory again: this is bounded-memory pagination, not a persistent index. Internal marker files count toward the 100,000-entry ceiling. Split larger collections into independently managed states.
 

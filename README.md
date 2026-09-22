@@ -15,7 +15,7 @@ Records have stable IDs, actors, timestamps and append-only creation events. Sto
 
 Optional [shared-key HMAC authentication](docs/AUTHENTICATION.md) signs complete manifest records. [Confined streaming checksums](docs/LARGE_FILES.md) support explicitly bounded attachments up to 4 GiB. The adapter has a separate 8 MiB input/output limit.
 
-See the [September review and prioritized next-session worklist](docs/REVIEW_2026-09-22.md). The [previous review](docs/PRODUCTION_READINESS_REVIEW.md) and [August checklist](docs/NEXT_SESSION.md) are historical.
+See the [blocker follow-up and next-session opportunities](docs/REVIEW_FOLLOWUP_2026-09-22.md), following the [September review](docs/REVIEW_2026-09-22.md). The [previous review](docs/PRODUCTION_READINESS_REVIEW.md) and [August checklist](docs/NEXT_SESSION.md) are historical.
 
 ## Quick install
 
