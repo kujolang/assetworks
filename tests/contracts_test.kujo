@@ -34,6 +34,14 @@ record = created["value"]["record"]; record["id"] = "plan-bad-receipt"; record["
 check(save_new(root,record)["ok"] && !dispatch("validate",opts(["--state",root,"--id",record["id"]]))["ok"],"receipt on non-transform rejected")
 record = created["value"]["record"]; record["id"] = "plan-bad-payload"; record["payload"] = []
 check(save_new(root,record)["ok"] && !dispatch("validate",opts(["--state",root,"--id",record["id"]]))["ok"],"persisted payload requires an object")
+record = created["value"]["record"]; record["id"] = "plan-unicode-oversize"; payload := record["payload"]; payload["padding"] = repeat("Ω",600000); record["payload"] = payload
+oversized := save_new(root,record)
+check(!oversized["ok"] && oversized["code"]=="record_too_large" && !file_exists(root+"/transactions/plan-unicode-oversize.json"),"UTF-8 byte size is enforced before transaction publication")
+record = created["value"]["record"]; record["id"] = "plan-unicode-control"; payload = record["payload"]; payload["label"] = "Ω"; record["payload"] = payload
+check(save_new(root,record)["ok"],"small UTF-8 record remains supported")
+output := root+"-export.json"; exported := dispatch("export",opts(["--state",root,"--output",output]))
+check(exported["ok"] && exported["value"]["bytes"]==file_size(output),"export receipt reports UTF-8 bytes rather than characters")
+cleanup_tree(output)
 schema := parse_json(read_file("schemas/record.schema.json"))
 check(json_schema_validate(created["value"]["record"],schema)["valid"],"created record matches public schema")
 record = created["value"]["record"]; record["actor"] = "bad\nactor"

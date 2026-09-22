@@ -81,7 +81,7 @@ export func save_with_checkpoints(state, record, checkpoint) {
     path := record_path(state, id)
     if file_exists(path) || is_link(path) { return storage_error("duplicate_id", "record already exists: " + id) }
     serialized := to_json_pretty(record) + "\n"
-    if len(serialized) > 1048576 { return storage_error("record_too_large", "serialized record exceeds 1 MiB") }
+    if byte_length(serialized) > 1048576 { return storage_error("record_too_large", "serialized record exceeds 1 MiB") }
     record_checksum := sha256(serialized)
     event_name := substring(sha256(record["created_at"] + "\n" + id), 0, 32) + ".json"
     event_path := history_dir(state) + "/" + event_name
@@ -109,14 +109,14 @@ func load_transaction(state, id) {
     journal := parsed["value"]
     if get(journal, "schema_version", "") != "1.0.0" || get(journal, "record_id", "") != id || type(get(journal, "record_text", null)) != "string" || type(get(journal, "event_text", null)) != "string" { return storage_error("invalid_journal", "invalid transaction schema") }
     serialized := journal["record_text"]
-    if len(serialized) > 1048576 || sha256(serialized) != get(journal, "record_sha256", "") { return storage_error("invalid_journal", "transaction record checksum does not match") }
+    if byte_length(serialized) > 1048576 || sha256(serialized) != get(journal, "record_sha256", "") { return storage_error("invalid_journal", "transaction record checksum does not match") }
     parsed_record := parse_object(serialized, "transaction record"); if !parsed_record["ok"] { return parsed_record }
     record := parsed_record["value"]
     if get(record, "id", "") != id || !valid_timestamp(get(record, "created_at", "")) || type(get(record, "actor", null)) != "string" { return storage_error("invalid_journal", "transaction identity does not match") }
     expected_name := substring(sha256(record["created_at"] + "\n" + id), 0, 32) + ".json"
     expected_event := event_text(record, journal["record_sha256"])
     if get(journal, "event_name", "") != expected_name || journal["event_text"] != expected_event { return storage_error("invalid_journal", "transaction audit event does not match") }
-    return {"ok": true, "read_bytes": len(contents), "value": {"record_text": serialized, "event_text": expected_event, "event_name": expected_name, "checksum": journal["record_sha256"]}}
+    return {"ok": true, "read_bytes": byte_length(contents), "value": {"record_text": serialized, "event_text": expected_event, "event_name": expected_name, "checksum": journal["record_sha256"]}}
 }
 
 export func recover_record(state, id) {
@@ -152,7 +152,7 @@ export func inspect_transactions(state, after, limit) {
                 data := transaction["value"]
                 for item in [{"path":record_path(state,id),"text":data["record_text"]},{"path":history_dir(state)+"/"+data["event_name"],"text":data["event_text"]}] {
                     try {
-                        actual := confined_read(item["path"],1048576); read_bytes = read_bytes + len(actual)
+                        actual := confined_read(item["path"],1048576); read_bytes = read_bytes + byte_length(actual)
                         if actual != item["text"] { transaction = storage_error("transaction_drift","stored bytes differ from their transaction") }
                     } except error { read_bytes = read_bytes + 1048576; transaction = storage_error("recovery_required","transaction is incomplete or unsafe; recover --id " + id) }
                 }
@@ -179,9 +179,9 @@ func read_record_file(state, id) {
     if file_size(path) > 1048576 { return {"ok": false, "code": "record_too_large", "error": "record exceeds 1 MiB"} }
     mut contents := ""
     try { contents = confined_read(path, 1048576) } except error { return storage_error("unsafe_record", "record read failed or exceeded its byte limit") }
-    parsed := parse_object(contents, "record " + id); if !parsed["ok"] { parsed["read_bytes"] = len(contents); return parsed }
+    parsed := parse_object(contents, "record " + id); if !parsed["ok"] { parsed["read_bytes"] = byte_length(contents); return parsed }
     if get(parsed["value"], "id", "") != id { return {"ok": false, "code": "id_mismatch", "error": "record id does not match filename"} }
-    return {"ok": true, "value": parsed["value"], "checksum": sha256(contents), "read_bytes": len(contents)}
+    return {"ok": true, "value": parsed["value"], "checksum": sha256(contents), "read_bytes": byte_length(contents)}
 }
 
 export func list_records(state, kind, after, limit) {

@@ -167,9 +167,9 @@ func export_result(value, parsed, p, state) {
     if output_error != "" { return {"ok": false, "code": "unsafe_output", "error": output_error} }
     if file_exists(output) && flag(parsed, "force", false) != true { return {"ok": false, "code": "output_exists", "error": "output exists; use --force only for intentional safe replacement"} }
     rendered := to_json_pretty(envelope(true, value, null, null, p["version"], p["contract_version"])) + "\n"
-    if len(rendered) > 8388608 { return {"ok": false, "code": "output_too_large", "error": "output exceeds 8 MiB"} }
+    if byte_length(rendered) > 8388608 { return {"ok": false, "code": "output_too_large", "error": "output exceeds 8 MiB"} }
     try { confined_write(output, rendered, flag(parsed, "force", false)) } except error { return {"ok": false, "code": "write_failed", "error": "atomic export write failed"} }
-    return {"ok": true, "value": {"output": output, "bytes": len(rendered), "sha256": sha256(rendered)}}
+    return {"ok": true, "value": {"output": output, "bytes": byte_length(rendered), "sha256": sha256(rendered)}}
 }
 
 export func dispatch(command, parsed) {

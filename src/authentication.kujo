@@ -5,7 +5,7 @@ export func read_key_file(path) {
     if path == "" { return {"ok": true, "value": ""} }
     mut key := ""
     try { key = confined_read(path, 4096) } except error { return {"ok": false, "code": "key_file_invalid", "error": "key file must be a confined UTF-8 file no larger than 4096 bytes"} }
-    if len(key) < 16 { return {"ok": false, "code": "key_file_invalid", "error": "key file must contain at least 16 bytes"} }
+    if byte_length(key) < 16 { return {"ok": false, "code": "key_file_invalid", "error": "key file must contain at least 16 bytes"} }
     return {"ok": true, "value": key}
 }
 

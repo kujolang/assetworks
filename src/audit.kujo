@@ -25,7 +25,7 @@ export func load_event(state, id) {
     if type(event_checksum) != "string" || !regex_match(event_checksum, "^[a-f0-9]{64}$") { return failure("invalid_event", "audit checksum is invalid") }
     expected := substring(sha256(event["at"] + "\n" + event["record_id"]), 0, 32)
     if expected != id { return failure("event_id_mismatch", "audit event does not match its filename") }
-    return {"ok": true, "value": event, "read_bytes": len(event_contents)}
+    return {"ok": true, "value": event, "read_bytes": byte_length(event_contents)}
 }
 
 func compare_event(event, record, checksum) {
