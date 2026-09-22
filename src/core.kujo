@@ -66,7 +66,10 @@ func artifact_metadata(path, maximum) {
     if path == "" { return {"ok": true, "value": null} }
     mut digest := null
     try { digest = confined_digest(path, maximum) }
-    except error { return {"ok": false, "code": "unsafe_artifact", "error": "artifact must be a confined regular file within max-artifact-bytes"} }
+    except error {
+        if contains(to_string(error),"size_limit_exceeded") == 1 { return {"ok":false,"code":"artifact_too_large","error":"artifact exceeds max-artifact-bytes"} }
+        return {"ok": false, "code": "unsafe_artifact", "error": "artifact must be a confined regular file within max-artifact-bytes"}
+    }
     return {"ok": true, "value": {"path": path_absolute(path), "sha256": digest["sha256"], "bytes": digest["bytes"], "maximum_bytes": maximum}}
 }
 
@@ -145,7 +148,10 @@ func validate_record(record, p, verification_key) {
         if type(maximum) != "int" || maximum < 1 || maximum > 4294967296 || artifact["bytes"] < 0 || artifact["bytes"] > maximum || !regex_match(artifact["sha256"], "^[a-f0-9]{64}$") { return {"ok": false, "code": "invalid_record", "error": "artifact bounds or digest are invalid"} }
         mut observed := null
         try { observed = confined_digest(path, maximum) }
-        except error { return {"ok": false, "code": "artifact_missing", "error": "bound artifact is unsafe, missing or exceeds its recorded bound"} }
+        except error {
+            if contains(to_string(error),"size_limit_exceeded") == 1 { return {"ok":false,"code":"artifact_size_drift","error":"bound artifact exceeds its recorded limit"} }
+            return {"ok": false, "code": "artifact_missing", "error": "bound artifact is unsafe or missing"}
+        }
         if observed["bytes"] != artifact["bytes"] { return {"ok": false, "code": "artifact_size_drift", "error": "bound artifact size has drifted"} }
         if observed["sha256"] != artifact["sha256"] { return {"ok": false, "code": "checksum_drift", "error": "bound artifact checksum drift detected"} }
     }

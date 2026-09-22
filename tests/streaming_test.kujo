@@ -15,6 +15,7 @@ check(dispatch("validate", opts(["--state",root + "/state"]))["ok"], "streamed m
 write_file(source, "digest-tampered", true)
 check(!dispatch("validate", opts(["--state",root + "/state"]))["ok"], "same-size byte drift rejected")
 for bound in ["0","4294967297","999999999999999999999999","13"] { check(!dispatch("manifest", opts(concat(base,["--max-artifact-bytes",bound,"--dry-run"])))["ok"], "invalid or undersized streaming bound " + bound) }
+check(dispatch("manifest",opts(concat(base,["--max-artifact-bytes","13","--dry-run"])))["code"]=="artifact_too_large","oversize artifact preserves error contract")
 write_file(source, "", true)
 check(confined_digest(source,1)["sha256"] == sha256(""), "empty artifact hashes correctly")
 link := root + "/alias"; linked := make_link(source,link,false)
