@@ -10,6 +10,9 @@ func portable_path(path) {
 }
 installed := portable_path(arguments[0]); runtime := env("KUJO_BIN")
 if type(runtime)!="string" || runtime=="" { throw("set KUJO_BIN to the exact installed runtime") }
+// Git Bash can execute an extensionless path to kujo.exe; canonical path
+// resolution must name the actual file before crossing the process boundary.
+if !file_exists(runtime) && file_exists(runtime+".exe") { runtime=runtime+".exe" }
 runtime = portable_path(runtime)
 root := test_root("installed smoke"); create_dir(root+"/src")
 write_file(root+"/src/core.kujo","throw(\"ambient caller code was executed\")\n",false)
