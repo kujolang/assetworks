@@ -83,4 +83,7 @@ jobs:
             KUJO_BIN="$(cygpath -m "$KUJO_BIN")"
             app_root="$(cygpath -m "$app_root")"
           fi
-          "$KUJO_BIN" run --isolated-imports "$app_root/scripts/release_smoke.kujo" -- "$app_root"
+          # The trusted test driver imports packaged test helpers; it launches
+          # the actual isolated CLI from its own unrelated, poisoned directory.
+          cd "$app_root"
+          "$KUJO_BIN" run scripts/release_smoke.kujo -- "$app_root"
