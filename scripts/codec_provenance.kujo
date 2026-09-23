@@ -1,0 +1,26 @@
+// Infrastructure evidence only; no registry push, image pull or host mounts.
+arguments:=args()
+if len(arguments)!=1 { throw("usage: codec_provenance.kujo -- NEW_OUTPUT_FILE") }
+binary:=env("DOCKER_BIN"); host:=env("ASSETWORKS_DOCKER_HOST"); image:=env("ASSETWORKS_CONTAINER_IMAGE")
+if type(binary)!="string" || !path_is_file(binary) || type(host)!="string" || !starts_with(host,"unix:///") || type(image)!="string" || !regex_match(image,"^sha256:[a-f0-9]{64}$") { throw("explicit Docker binary, Unix socket and immutable image ID required") }
+options:={"timeout_ms":60000,"max_output_bytes":4194304,"inherit_env":false,"env_allow":["SystemRoot","WINDIR","TEMP","TMP"]}
+func run(arguments) {
+    result:=spawn_process(concat([binary,"--host",host],arguments),options)
+    if result.exitcode!=0 || result.timed_out || result.cancelled || result.stdout_truncated || result.stderr_truncated { throw("codec evidence command failed or exceeded bounds") }
+    return result.stdout
+}
+inventory:=run(["run","--rm","--pull=never","--network=none","--read-only","--cap-drop=ALL","--security-opt=no-new-privileges","--pids-limit=64","--memory=256m","--entrypoint=/usr/bin/dpkg-query",image,"-W","-f=${Package}\t${Version}\t${Architecture}\n"])
+metadata:=parse_json(run(["image","inspect",image]))
+if len(metadata)!=1 || metadata[0]["Id"]!=image { throw("image identity mismatch") }
+mut packages:=[]; mut relationships:=[]; mut index:=0
+for line in split(trim(inventory),"\n") {
+    fields:=split(line,"\t"); if len(fields)!=3 || len(fields[0])==0 || len(fields[1])==0 { throw("invalid package inventory") }
+    index=index+1; if index>10000 { throw("package inventory exceeds bound") }
+    id:="SPDXRef-Package-"+to_string(index)
+    packages=push(packages,{"SPDXID":id,"name":fields[0],"versionInfo":fields[1],"downloadLocation":"NOASSERTION","filesAnalyzed":false,"licenseConcluded":"NOASSERTION","licenseDeclared":"NOASSERTION","copyrightText":"NOASSERTION","comment":"dpkg architecture: "+fields[2]})
+    relationships=push(relationships,{"spdxElementId":"SPDXRef-DOCUMENT","relationshipType":"DESCRIBES","relatedSpdxElement":id})
+}
+sbom:={"spdxVersion":"SPDX-2.3","dataLicense":"CC0-1.0","SPDXID":"SPDXRef-DOCUMENT","name":"AssetWorks codec installed Debian packages","documentNamespace":"https://kujolang.ai/assetworks/sbom/"+uuid_v4(),"creationInfo":{"creators":["Tool: AssetWorks codec_provenance"],"created":now_utc()},"packages":packages,"relationships":relationships}
+receipt:={"schema_version":"1.0.0","image":image,"dockerfile_sha256":sha256_file("containers/Dockerfile"),"inventory_sha256":sha256(inventory),"platform":{"os":metadata[0]["Os"],"architecture":metadata[0]["Architecture"]},"sbom":sbom,"scope":"installed dpkg packages only; no file-level or vulnerability assessment"}
+write_file_atomic(arguments[0],to_json_pretty(receipt)+"\n",false)
+print(to_json({"verified":true,"image":image,"packages":index,"evidence_sha256":sha256_file(arguments[0])}))

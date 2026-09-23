@@ -1,0 +1,44 @@
+name: Operator recovery and codec rehearsal
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 7 * * 1'
+permissions:
+  contents: read
+jobs:
+  rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - name: Install verified native runtime
+        shell: bash
+        run: |
+          curl -fLsS https://github.com/kujolang/kujo/releases/download/v1.5.0/kujo-v1.5.0-linux-x64.tar.gz -o /tmp/kujo.tar.gz
+          echo 'cd267f39c1243f6500889fb3678a1a5206ad1ef99c53d7336265ff31267f0675  /tmp/kujo.tar.gz' | sha256sum -c -
+          mkdir -p /tmp/kujo-runtime
+          tar -xzf /tmp/kujo.tar.gz -C /tmp/kujo-runtime
+          echo /tmp/kujo-runtime >> "$GITHUB_PATH"
+      - name: Rebuild codec with current package updates
+        run: |
+          docker build --no-cache -f containers/Dockerfile -t assetworks-rehearsal:local .
+          echo "DOCKER_BIN=$(command -v docker)" >> "$GITHUB_ENV"
+          echo 'ASSETWORKS_DOCKER_HOST=unix:///var/run/docker.sock' >> "$GITHUB_ENV"
+          echo "ASSETWORKS_CONTAINER_IMAGE=$(docker image inspect assetworks-rehearsal:local --format '{{.Id}}')" >> "$GITHUB_ENV"
+      - name: Rehearse isolation, interruption and disaster recovery
+        run: |
+          mkdir -p evidence
+          set -o pipefail
+          kujo run scripts/codec_provenance.kujo -- evidence/codec.json
+          kujo run tests/isolation_test.kujo | tee evidence/isolation.log
+          kujo run tests/maintenance_test.kujo | tee evidence/maintenance.log
+          kujo run tests/backup_test.kujo | tee evidence/backup.log
+          kujo run tests/public_authentication_test.kujo | tee evidence/trust.log
+          kujo run tests/drill_test.kujo | tee evidence/drill.log
+      - name: Preserve rehearsal evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: operations-evidence
+          path: evidence/
+          retention-days: 30

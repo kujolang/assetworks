@@ -1,0 +1,43 @@
+// Sibling processes separate fixture preparation from measurement RSS.
+from src.core import dispatch
+from src.args import parse_args
+from src.filesystem import directory_page, page_cursor
+from src.validation import verify_complete_state
+from src.backup import backup_state, restore_state
+arguments:=args()
+if len(arguments)!=4 { throw("use operating_benchmark.sh COUNT") }
+mode:=arguments[0]; root:=arguments[1]; count:=to_int(arguments[2]); distribution:=arguments[3]
+if count<1001 || count>10000 || (distribution!="uniform" && distribution!="skewed") { throw("count must be 1001..10000; distribution uniform/skewed") }
+state:=root+"/"+distribution
+func opts(values) { return parse_args(values,["json","force","dry-run"]) }
+if mode=="prepare" {
+    if file_exists(state) { throw("fixture state must be new") }
+    result:=dispatch("init",opts(["--state",state,"--layout","sharded-v1"])); if !result["ok"] { throw("init failed") }
+    asset:=root+"/"+distribution+".dat"; write_file(asset,repeat("x",65536),false)
+    mut found:=0; mut candidate:=0
+    while found<count {
+        candidate=candidate+1; id:="plan-"+to_string(candidate)
+        if distribution=="uniform" || substring(sha256(id+".json"),0,2)=="00" {
+            made:=dispatch("plan",opts(["--state",state,"--id",id,"--actor","benchmark","--timestamp","2026-09-23T00:00:00Z","--input","fixtures/core.json","--path",asset]))
+            if !made["ok"] { throw(to_json(made)) }; found=found+1
+        }
+    }
+    print(to_json({"verified":true,"phase":"prepare","distribution":distribution,"records":count})); exit(0)
+}
+if mode!="measure" { throw("unknown phase") }
+start:=current_timestamp(); first:=directory_page(state+"/records","",1000); first_ms:=current_timestamp()-start
+if !first["ok"] { throw(first["error"]) }
+mut cursor:=""; mut done:=false; mut observed:=0; mut pages:=0; mut scanned:=0
+while !done {
+    page:=directory_page(state+"/records",cursor,1000); if !page["ok"] { throw(page["error"]) }
+    observed=observed+len(page["names"]); pages=pages+1; scanned=scanned+page["scanned"]; done=!page["truncated"]
+    if !done { next:=page_cursor(page,page["names"][len(page["names"])-1]); if next==cursor { throw("stuck cursor") }; cursor=next }
+}
+if observed!=count { throw("pagination count mismatch") }
+start=current_timestamp(); checked:=verify_complete_state(state,"",""); audit_ms:=current_timestamp()-start
+if !checked["ok"] { throw(to_json(checked)) }
+start=current_timestamp(); saved:=backup_state(state,state+"-backup","",""); backup_ms:=current_timestamp()-start
+if !saved["ok"] { throw(to_json(saved)) }
+start=current_timestamp(); restored:=restore_state(state+"-backup",state+"-restored",saved["value"]["backup_sha256"],""); restore_ms:=current_timestamp()-start
+if !restored["ok"] { throw(to_json(restored)) }
+print(to_json({"verified":true,"phase":"measure","distribution":distribution,"records":count,"pages":pages,"first_page_ms":first_ms,"first_page_scanned":first["scanned"],"total_page_scanned":scanned,"audit_ms":audit_ms,"backup_ms":backup_ms,"restore_ms":restore_ms,"backup_bytes":saved["value"]["bytes"],"peak_rss_bytes":process_usage()["peak_rss_bytes"],"scope":"valid records sharing one 64 KiB artifact; audit, backup and restore measured together; no disk-throughput SLA"}))
