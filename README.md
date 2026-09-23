@@ -17,7 +17,9 @@ Optional [RSA public-key signatures or shared-key HMAC authentication](docs/AUTH
 
 [Sharded collections and migration](docs/STORAGE_LAYOUT.md) support larger local state without a mutable index. [Backup and restore](docs/BACKUP_RESTORE.md) preserve immutable signatures and referenced media across loss of the original volume.
 
-See the [round-two review and next-session worklist](docs/REVIEW_FOLLOWUP_2026-09-22_ROUND_2.md) and [implementation/release acceptance checklist](docs/NEXT_SESSION_IMPLEMENTATION.md). The [blocker follow-up](docs/REVIEW_FOLLOWUP_2026-09-22.md), [September review](docs/REVIEW_2026-09-22.md), [previous review](docs/PRODUCTION_READINESS_REVIEW.md) and [August checklist](docs/NEXT_SESSION.md) preserve earlier evidence.
+Development `main` also includes [resumable backup/migration and recovery drills](docs/MAINTENANCE.md), [offline SRT/WebVTT conversion and transcript extraction](docs/ACCESSIBILITY_ADAPTER.md), and a [weekly codec/recovery rehearsal](docs/CODEC_UPDATES.md). These additions are not in the existing v0.3.0 archive; use a verified `main` checkout for them. [Trust-distribution evaluation](docs/TRUST_DISTRIBUTION_REVIEW.md) documents the remaining freshness boundary.
+
+See the [current work record](docs/NEXT_WORK_2026-09-23.md), [round-two review and next-session worklist](docs/REVIEW_FOLLOWUP_2026-09-22_ROUND_2.md) and [implementation/release acceptance checklist](docs/NEXT_SESSION_IMPLEMENTATION.md). The [blocker follow-up](docs/REVIEW_FOLLOWUP_2026-09-22.md), [September review](docs/REVIEW_2026-09-22.md), [previous review](docs/PRODUCTION_READINESS_REVIEW.md) and [August checklist](docs/NEXT_SESSION.md) preserve earlier evidence.
 
 ## Quick install
 

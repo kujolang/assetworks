@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added explicit restartable backup/migration with exact-byte conflict checks, progress receipts and no-delete quarantine.
+- Added operator recovery drills and interruption coverage before atomic restore publication.
+- Added a bounded native SRT/WebVTT conversion and transcript extraction adapter.
+- Added weekly codec/recovery rehearsals, installed-package SPDX evidence, skewed-state measurement and trust-freshness guidance.
+
+## Unreleased
+
 ## 0.3.0 - 2026-09-22
 
 - Added explicit RSA public-key verification with active/retired/revoked key rotation and downgrade protection, while retaining HMAC and older immutable record compatibility.
