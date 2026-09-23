@@ -1,4 +1,4 @@
-from src.filesystem import collection_sharded, directory_page, page_cursor, is_link
+from src.filesystem import confined_path, collection_sharded, directory_page, page_cursor, is_link
 from src.storage import protected_output, validate_state_path
 from src.maintenance import begin_job, exact_write, exact_copy, job_progress, noop_checkpoint
 
@@ -21,6 +21,7 @@ export func migrate_resumable(source, destination, resume, checkpoint) {
             exact_write(destination+"/"+collection+"/.assetworks-shards","sha256-256-v1\n",checkpoint)
             input := source+"/"+collection
             sharded := collection_sharded(input)
+            input_locator:=confined_path(input); output_locator:=confined_path(destination+"/"+collection)
             mut after := ""; mut done := false
             while !done {
                 mut names := []; mut next := after
@@ -43,7 +44,15 @@ export func migrate_resumable(source, destination, resume, checkpoint) {
                     if type(name)!="string" || !regex_match(name,"^[a-z0-9][a-z0-9-]{1,127}\\.json$") { throw("unsafe collection filename") }
                     shard := substring(sha256(name),0,2)
                     source_relative := name; if sharded { source_relative=shard+"/"+name }
-                    receipt := exact_copy(input+"/"+source_relative,destination+"/"+collection+"/"+shard+"/"+name,4194304,checkpoint)
+                    receipt := {}
+                    if resume { receipt = exact_copy(input+"/"+source_relative,destination+"/"+collection+"/"+shard+"/"+name,4194304,checkpoint) }
+                    else {
+                        // Fresh destinations cannot reuse bytes. Cache validated
+                        // collection locators instead of reparsing both full paths
+                        // for every file in a large migration.
+                        receipt = copy_file_beneath(input_locator["root"],input_locator["relative"]+"/"+source_relative,output_locator["root"],output_locator["relative"]+"/"+shard+"/"+name,4194304)
+                        checkpoint("copy:"+destination+"/"+collection+"/"+shard+"/"+name)
+                    }
                     count = count+1; total_bytes = total_bytes+receipt["bytes"]
                 }
                 if !done && next == after { throw("migration cursor did not advance") }
@@ -53,17 +62,19 @@ export func migrate_resumable(source, destination, resume, checkpoint) {
         }
         exact_copy(source+"/metadata.json",destination+"/metadata.json",65536,checkpoint)
         // A resumed source deletion must not leave unaccounted destination records.
-        mut output_count := 0
-        for collection in ["records","history","transactions"] {
-            mut cursor := ""; mut finished := false
-            while !finished {
-                page := directory_page(destination+"/"+collection,cursor,1000)
-                if !page["ok"] { throw(page["error"]) }
-                output_count=output_count+len(page["names"]); finished=!page["truncated"]
-                if !finished { cursor=page_cursor(page,page["names"][len(page["names"])-1]) }
+        if resume {
+            mut output_count := 0
+            for collection in ["records","history","transactions"] {
+                mut cursor := ""; mut finished := false
+                while !finished {
+                    page := directory_page(destination+"/"+collection,cursor,1000)
+                    if !page["ok"] { throw(page["error"]) }
+                    output_count=output_count+len(page["names"]); finished=!page["truncated"]
+                    if !finished { cursor=page_cursor(page,page["names"][len(page["names"])-1]) }
+                }
             }
+            if output_count!=count { throw("source changed or destination contains unexpected files") }
         }
-        if output_count!=count { throw("source changed or destination contains unexpected files") }
         for collection in ["records","history","locks"] { exact_write(destination+"/"+collection+"/.assetworks-directory","AssetWorks managed directory\n",checkpoint) }
         receipt := {"schema_version":"1.0.0","layout":"sharded-v1","files":count,"bytes":total_bytes,"source":source}
         exact_write(destination+"/migration.json",to_json(receipt)+"\n",checkpoint)
