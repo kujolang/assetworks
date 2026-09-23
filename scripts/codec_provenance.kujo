@@ -9,7 +9,7 @@ func run(arguments) {
     if result.exitcode!=0 || result.timed_out || result.cancelled || result.stdout_truncated || result.stderr_truncated { throw("codec evidence command failed or exceeded bounds") }
     return result.stdout
 }
-inventory:=run(["run","--rm","--pull=never","--network=none","--read-only","--cap-drop=ALL","--security-opt=no-new-privileges","--pids-limit=64","--memory=256m","--entrypoint=/usr/bin/dpkg-query",image,"-W","-f=${Package}\t${Version}\t${Architecture}\n"])
+inventory:=run(["run","--rm","--pull=never","--network=none","--read-only","--cap-drop=ALL","--security-opt=no-new-privileges","--pids-limit=64","--memory=256m","--entrypoint=/usr/bin/dpkg-query",image,"-W","-f=$"+"{Package}\t$"+"{Version}\t$"+"{Architecture}\n"])
 metadata:=parse_json(run(["image","inspect",image]))
 if len(metadata)!=1 || metadata[0]["Id"]!=image { throw("image identity mismatch") }
 mut packages:=[]; mut relationships:=[]; mut index:=0

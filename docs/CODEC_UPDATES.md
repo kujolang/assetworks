@@ -1,6 +1,6 @@
 # Codec update rehearsal and provenance
 
-`operations.yml` rebuilds the pinned-base codec image every Monday and on manual dispatch. The build refreshes Ubuntu package indexes and installed FFmpeg dependencies, executes the actual isolation suite and rehearses recovery. It never pushes an image or changes a user's configured immutable image ID. Review the run and adopt a newly tested ID explicitly.
+`operations.yml` rebuilds the pinned-base codec image every Monday and on manual dispatch. The build refreshes Ubuntu package indexes, upgrades installed base packages and installs current FFmpeg dependencies, executes the actual isolation suite and rehearses recovery. It never pushes an image or changes a user's configured immutable image ID. Review the run and adopt a newly tested ID explicitly.
 
 The Kujo `scripts/codec_provenance.kujo` script records the immutable image ID, platform, Dockerfile digest and installed package inventory, including an SPDX 2.3 document with package names and versions. License/download fields use `NOASSERTION`; this is package provenance, not license clearance, a complete file-level SBOM or a vulnerability scan. The collection container has no network, host mounts or elevated privileges. CI retains fixture-only receipts for 30 days. Export release evidence into your longer-lived release archive when promoting an image.
 
