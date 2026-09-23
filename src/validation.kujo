@@ -21,10 +21,14 @@ export func validate_record(record, p, verification_key, artifact_root) {
     authentication := verify_record_authentication(record, verification_key); if !authentication["ok"] { return authentication }
     receipt := get(record, "execution_receipt", null)
     if has_key(record,"execution_receipt") == 1 {
-        if type(receipt) != "dict" || !has(["planned", "completed"], get(receipt, "execution", "")) || !has(["render", "convert", "resize", "thumbnail"], record["command"]) { return {"ok": false, "code": "invalid_record", "error": "invalid execution receipt"} }
-        if has_key(receipt,"provider_class") == 1 && receipt["provider_class"] != "ffmpeg" { return {"ok":false,"code":"invalid_record","error":"unsupported receipt provider"} }
+        if type(receipt) != "dict" || !has(["planned", "completed"], get(receipt, "execution", "")) || !has(["render", "convert", "resize", "thumbnail", "captions", "transcript"], record["command"]) { return {"ok": false, "code": "invalid_record", "error": "invalid execution receipt"} }
+        if has_key(receipt,"provider_class") == 1 && !has(["ffmpeg","kujo-captions"],receipt["provider_class"]) { return {"ok":false,"code":"invalid_record","error":"unsupported receipt provider"} }
         if has_key(receipt,"source_sha256") == 1 && (type(receipt["source_sha256"]) != "string" || !regex_match(receipt["source_sha256"],"^[a-f0-9]{64}$")) { return {"ok":false,"code":"invalid_record","error":"invalid receipt source digest"} }
-        if receipt["execution"] == "completed" && (get(receipt, "provider_class", "") != "ffmpeg" || type(get(receipt, "source_sha256", null)) != "string" || !regex_match(get(receipt, "source_sha256", ""), "^[a-f0-9]{64}$") || type(get(record, "artifact", null)) != "dict") { return {"ok": false, "code": "invalid_record", "error": "completed transform requires source digest and generated artifact"} }
+        if receipt["execution"] == "completed" && (!has(["ffmpeg","kujo-captions"],get(receipt, "provider_class", "")) || type(get(receipt, "source_sha256", null)) != "string" || !regex_match(get(receipt, "source_sha256", ""), "^[a-f0-9]{64}$") || type(get(record, "artifact", null)) != "dict") { return {"ok": false, "code": "invalid_record", "error": "completed transform requires source digest and generated artifact"} }
+    }
+    if type(receipt)=="dict" && get(receipt,"provider_class","")=="ffmpeg" && has(["captions","transcript"],record["command"]) { return {"ok":false,"code":"invalid_record","error":"FFmpeg receipt cannot describe caption processing"} }
+    if type(receipt)=="dict" && get(receipt,"provider_class","")=="kujo-captions" {
+        if !has(["captions","transcript"],record["command"]) || !has(["srt","vtt"],get(receipt,"input_format","")) || !has(["srt","vtt","text"],get(receipt,"output_format","")) || type(get(receipt,"cues",null))!="int" || receipt["cues"]<1 || receipt["cues"]>10000 || get(receipt,"output_format","")!=get(record["payload"],"format","") || get(receipt,"input_format","")!=get(record["payload"],"input_format","") || has_key(receipt,"isolation")==1 { return {"ok":false,"code":"invalid_record","error":"invalid caption adapter receipt"} }
     }
     if type(receipt)=="dict" && has_key(receipt,"isolation")==1 {
         if !has(["local","container"],receipt["isolation"]) { return {"ok":false,"code":"invalid_record","error":"unknown execution isolation"} }

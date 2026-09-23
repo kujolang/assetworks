@@ -1,0 +1,39 @@
+from src.core import dispatch
+from src.args import parse_args
+from src.drill import recovery_drill
+from src.backup import restore_with_checkpoints
+from tests.support import test_root, cleanup_tree
+mut passed:=0; mut failed:=0
+func check(ok,label) { if ok { passed=passed+1 } else { failed=failed+1; eprint("FAIL: "+label) } }
+func opts(values) { return parse_args(values,["json","force","dry-run","resume"]) }
+root:=test_root("drill"); create_dir(root)
+source:=root+"/source"; backup:=root+"/backup"
+write_file(root+"/asset","source asset",false); write_file(root+"/key","original-authentication-key",false)
+write_file(root+"/payload.json",to_json({"asset_id":"asset-drill","media_type":"text/plain","rights_reference":"CC0","accessibility_status":"text"}),false)
+check(dispatch("manifest",opts(["--state",source,"--input",root+"/payload.json","--path",root+"/asset","--actor","drill-test","--key-file",root+"/key"]))["ok"],"authenticated recovery fixture")
+saved:=dispatch("backup",opts(["--state",source,"--output",backup,"--key-file",root+"/key"]))
+check(saved["ok"],"drill backup")
+if saved["ok"] {
+    digest:=saved["value"]["backup_sha256"]
+    cleanup_tree(source); delete_file(root+"/asset")
+    check(!recovery_drill(backup,root+"/missing-trust",digest,"")["ok"] && !file_exists(root+"/missing-trust"),"unavailable trust material fails without publication")
+    check(!recovery_drill(backup,root+"/wrong-trust",digest,"incorrect-authentication-key")["ok"],"wrong trust material fails")
+    result:=dispatch("drill",opts(["--state",backup,"--output",root+"/restored","--backup-sha256",digest,"--key-file",root+"/key"]))
+    check(result["ok"] && result["value"]["verified"],"operator drill restores after complete source loss")
+    check(contains(to_json(result),root)==0,"monitoring summary excludes local paths and actors")
+    check(!recovery_drill(backup,root+"/restored",digest,"original-authentication-key")["ok"],"drill never replaces prior restored evidence")
+    mut count:=0; mut stop:=0
+    func fault(phase) { count=count+1; if count==stop { throw("interruption") } }
+    check(restore_with_checkpoints(backup,root+"/baseline",digest,"original-authentication-key",fault)["ok"],"restore boundary baseline")
+    total:=count
+    for point in range(1,total+1) {
+        count=0; stop=point; destination:=root+"/interrupted-"+to_string(point)
+        check(!restore_with_checkpoints(backup,destination,digest,"original-authentication-key",fault)["ok"] && !file_exists(destination),"interrupted restore never publishes at boundary "+to_string(point))
+        check(recovery_drill(backup,destination,digest,"original-authentication-key")["ok"],"fresh restore succeeds with retained prior staging")
+    }
+    cleanup_tree(backup)
+    check(!recovery_drill(backup,root+"/lost-backup",digest,"original-authentication-key")["ok"] && !file_exists(root+"/lost-backup"),"lost backup device fails closed")
+}
+cleanup_tree(root)
+print(to_string(passed)+" passed; "+to_string(failed)+" failed")
+if failed>0 { exit(1) }

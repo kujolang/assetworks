@@ -17,6 +17,12 @@ export func validate_path_components(path) {
 }
 
 export func validate_state_path(path) {
+    if file_exists(path+"/.maintenance-job.json") || is_link(path+"/.maintenance-job.json") {
+        try {
+            job := parse_json(confined_read(path+"/.maintenance-job.json",65536))
+            if get(job,"kind","")!="migration" || !file_exists(path+"/migration.json") { return "maintenance output is not completed state" }
+        } except error { return "invalid maintenance job receipt" }
+    }
     if file_exists(path+"/.migration-in-progress") || is_link(path+"/.migration-in-progress") { return "migration is incomplete; destination cannot be used as state" }
     error := validate_path_components(path); if error != "" { return error }
     if file_exists(path) && !path_is_dir(path) { return "state path is not a directory" }

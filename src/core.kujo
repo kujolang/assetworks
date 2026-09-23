@@ -1,6 +1,8 @@
+from src.drill import recovery_drill
 from src.validation import validate_record
-from src.backup import backup_state, restore_state
-from src.migration import migrate_state
+from src.backup import backup_resumable, restore_state
+from src.migration import migrate_resumable
+from src.maintenance import maintenance_status, abandon_maintenance, noop_checkpoint
 from src.authentication import read_auth_options, authenticate_record
 from src.public_authentication import sign_public_record
 from src.adapters import load_adapter, execute_transform
@@ -99,7 +101,7 @@ func create_record(command, parsed, config, p) {
     mut execution_receipt := null
     adapter_path := flag(parsed, "adapter-config", "")
     if adapter_path != "" {
-        if !has(["render", "convert", "resize", "thumbnail"], command) { return {"ok": false, "code": "adapter_command", "error": "adapter-config is only valid for transform commands"} }
+        if !has(["render", "convert", "resize", "thumbnail", "captions", "transcript"], command) { return {"ok": false, "code": "adapter_command", "error": "adapter-config requires a media or accessibility command"} }
         configured := load_adapter(adapter_path); if !configured["ok"] { return configured }
         preflight := execute_transform(command, payload, flag(parsed, "path", ""), state, configured["value"], true)
         if !preflight["ok"] { return preflight }
@@ -142,16 +144,21 @@ func export_result(value, parsed, p, state) {
 export func dispatch(command, parsed) {
     p := profile(); config_result := load_config(flag(parsed, "config", "")); if !config_result["ok"] { return config_result }; config := config_result["value"]
     state := setting(parsed, config, "state", p["default_state"])
+    if flag(parsed,"resume",false) && !has(["backup","migrate"],command) { return {"ok":false,"code":"unsupported_flag","error":"--resume is only supported for backup and migrate"} }
+    if starts_with(command,"maintenance ") && (flag(parsed,"dry-run",false) || flag(parsed,"force",false)) { return {"ok":false,"code":"unsupported_flag","error":"maintenance commands do not accept --dry-run or --force"} }
+    if command=="maintenance status" { return maintenance_status(state) }
+    if command=="maintenance abandon" { return abandon_maintenance(state,flag(parsed,"output","")) }
     if command == "init" { return initialize_layout(state, {"schema_version": "1.0.0", "tool": p["slug"], "tool_version": p["version"], "contract_version": p["contract_version"], "created_at": now_utc()}, flag(parsed,"layout","flat")) }
-    if has(["backup","restore","migrate"],command) && (flag(parsed,"dry-run",false) || flag(parsed,"force",false)) { return {"ok":false,"code":"unsupported_flag","error":"backup, restore and migrate do not accept --dry-run or --force"} }
-    if command == "backup" || command == "restore" {
+    if has(["backup","restore","migrate","drill"],command) && (flag(parsed,"dry-run",false) || flag(parsed,"force",false)) { return {"ok":false,"code":"unsupported_flag","error":"backup, restore, drill and migrate do not accept --dry-run or --force"} }
+    if command == "backup" || command == "restore" || command=="drill" {
         key_result := read_auth_options(flag(parsed,"key-file",""),flag(parsed,"signing-key",""),flag(parsed,"trust-store",""),flag(parsed,"key-id","")); if !key_result["ok"] { return key_result }
-        if command=="backup" { return backup_state(state,flag(parsed,"output",""),flag(parsed,"artifact-root",""),key_result["value"]) }
+        if command=="backup" { return backup_resumable(state,flag(parsed,"output",""),flag(parsed,"artifact-root",""),key_result["value"],flag(parsed,"resume",false),noop_checkpoint) }
+        if command=="drill" { return recovery_drill(state,flag(parsed,"output",""),flag(parsed,"backup-sha256",""),key_result["value"]) }
         return restore_state(state,flag(parsed,"output",""),flag(parsed,"backup-sha256",""),key_result["value"])
     }
-    if command == "migrate" { return migrate_state(state,flag(parsed,"output","")) }
+    if command == "migrate" { return migrate_resumable(state,flag(parsed,"output",""),flag(parsed,"resume",false),noop_checkpoint) }
     if command == "recover" { return recover_record(state, flag(parsed, "id", "")) }
-    if command == "version" { return {"ok": true, "value": {"tool": p["slug"], "version": p["version"], "contract_version": p["contract_version"], "supported_record_versions": get(p, "record_versions", [p["version"]]), "minimum_kujo": "1.5.0 candidate (pinned source required)", "tested_kujo_commit": "a0d433e9aba27208a59927519c529d10f1f87f06"}} }
+    if command == "version" { return {"ok": true, "value": {"tool": p["slug"], "version": p["version"], "contract_version": p["contract_version"], "supported_record_versions": get(p, "record_versions", [p["version"]]), "minimum_kujo": "1.5.0", "tested_kujo_commit": "a0d433e9aba27208a59927519c529d10f1f87f06"}} }
     if command == "doctor" {
         state_error := validate_state_path(state); listing := {"records": [], "warnings": [], "truncated": false}
         if state_error == "" { listing = list_records(state, "", "", 1000) }
@@ -162,7 +169,7 @@ export func dispatch(command, parsed) {
         if listing["truncated"] || transactions["truncated"] { code = "inspection_incomplete"; error = "doctor inspected only the first 1000 records" }
         if state_error != "" { code = "unsafe_state"; error = state_error }
         if state_error == "" && len(listing["warnings"]) > 0 { code = "corrupt_state"; error = "one or more records are unreadable" }
-        return {"ok": healthy, "code": code, "error": error, "value": {"healthy": healthy, "tool": p["slug"], "version": p["version"], "minimum_kujo": "1.5.0 candidate (pinned source required)", "tested_kujo_commit": "a0d433e9aba27208a59927519c529d10f1f87f06", "state": state, "record_count": len(listing["records"]), "truncated": listing["truncated"], "corrupt_records": listing["warnings"], "transaction_warnings": transactions["warnings"], "limits": {"input_bytes": 1048576, "record_bytes": 1048576, "artifact_bytes": 67108864, "list_records": 1000}, "limitations": p["limitations"]}}
+        return {"ok": healthy, "code": code, "error": error, "value": {"healthy": healthy, "tool": p["slug"], "version": p["version"], "minimum_kujo": "1.5.0", "tested_kujo_commit": "a0d433e9aba27208a59927519c529d10f1f87f06", "state": state, "record_count": len(listing["records"]), "truncated": listing["truncated"], "corrupt_records": listing["warnings"], "transaction_warnings": transactions["warnings"], "limits": {"input_bytes": 1048576, "record_bytes": 1048576, "artifact_bytes": 67108864, "list_records": 1000}, "limitations": p["limitations"]}}
     }
     if has(p["show_commands"], command) {
         id := flag(parsed, "id", ""); if id == "" { return {"ok": false, "code": "id_required", "error": "show requires --id"} }
@@ -221,7 +228,7 @@ export func dispatch(command, parsed) {
 }
 
 func usage(p) {
-    return p["name"] + " " + p["version"] + "\n\n" + p["description"] + "\n\nCommands:\n  " + join(p["commands"], "\n  ") + "\n\nCommon flags:\n  --artifact-root PATH  Verify restored content-addressed media\n  --backup-sha256 HEX   Externally retained backup receipt for restore\n  --layout NAME      New state: flat or sharded-v1\n  --state PATH       Local state directory\n  --config FILE      JSON defaults for state, actor, and limit\n  --input FILE       JSON command payload (1 MiB maximum)\n  --actor ID         Required for mutations\n  --timestamp UTC    Deterministic RFC 3339 timestamp\n  --id ID            Explicit stable record ID\n  --path FILE        Bounded artifact attachment\n  --max-artifact-bytes N  1..4294967296; default 64 MiB\n  --adapter-config FILE  Explicit offline FFmpeg configuration\n  --key-file FILE    HMAC sign / verify manifests\n  --signing-key FILE RSA private key for manifests\n  --trust-store FILE Explicit public-key trust and rotation policy\n  --key-id ID        Active trusted signing identity\n  --type TYPE        Record filter for list/export\n  --after CURSOR     Record/filename pagination cursor\n  --history-after CURSOR      Resume validation history page\n  --transaction-after CURSOR  Resume validation journal page\n  --limit N          1..1000 JSON filenames (also byte bounded)\n  --output FILE      Atomic JSON export\n  --force            Replace only an explicitly named safe output\n  --dry-run          Validate without writing\n  --json             Stable output envelope"
+    return p["name"] + " " + p["version"] + "\n\n" + p["description"] + "\n\nCommands:\n  " + join(p["commands"], "\n  ") + "\n\nCommon flags:\n  --resume           Verify and continue a matching backup/migration job\n  --artifact-root PATH  Verify restored content-addressed media\n  --backup-sha256 HEX   Externally retained backup receipt for restore\n  --layout NAME      New state: flat or sharded-v1\n  --state PATH       Local state directory\n  --config FILE      JSON defaults for state, actor, and limit\n  --input FILE       JSON command payload (1 MiB maximum)\n  --actor ID         Required for mutations\n  --timestamp UTC    Deterministic RFC 3339 timestamp\n  --id ID            Explicit stable record ID\n  --path FILE        Bounded artifact attachment\n  --max-artifact-bytes N  1..4294967296; default 64 MiB\n  --adapter-config FILE  Explicit offline media/caption configuration\n  --key-file FILE    HMAC sign / verify manifests\n  --signing-key FILE RSA private key for manifests\n  --trust-store FILE Explicit public-key trust and rotation policy\n  --key-id ID        Active trusted signing identity\n  --type TYPE        Record filter for list/export\n  --after CURSOR     Record/filename pagination cursor\n  --history-after CURSOR      Resume validation history page\n  --transaction-after CURSOR  Resume validation journal page\n  --limit N          1..1000 JSON filenames (also byte bounded)\n  --output FILE      Atomic JSON export\n  --force            Replace only an explicitly named safe output\n  --dry-run          Validate without writing\n  --json             Stable output envelope"
 }
 
 func usage_error(message, argv, p) {
@@ -234,9 +241,9 @@ export func main(argv) {
     p := profile(); command := command_name(argv, p["commands"])
     if command == "help" { print(usage(p)); return 0 }
     if !has(p["commands"], command) { return usage_error("unknown command: " + command, argv, p) }
-    parsed := parse_args(command_tokens(argv, command), ["json", "dry-run", "force"])
+    parsed := parse_args(command_tokens(argv, command), ["json", "dry-run", "force", "resume"])
     if len(parsed["errors"]) > 0 { return usage_error(parsed["errors"][0], argv, p) }
-    allowed := ["artifact-root", "backup-sha256", "layout", "state", "config", "input", "id", "other-id", "actor", "timestamp", "path", "type", "after", "history-after", "transaction-after", "limit", "output", "adapter-config", "key-file", "signing-key", "trust-store", "key-id", "max-artifact-bytes", "json", "dry-run", "force"]
+    allowed := ["artifact-root", "backup-sha256", "layout", "state", "config", "input", "id", "other-id", "actor", "timestamp", "path", "type", "after", "history-after", "transaction-after", "limit", "output", "adapter-config", "key-file", "signing-key", "trust-store", "key-id", "max-artifact-bytes", "json", "dry-run", "force", "resume"]
     for name in keys(parsed["flags"]) { if !has(allowed, name) { return usage_error("unknown flag --" + name, argv, p) } }
     if len(parsed["positionals"]) > 0 { return usage_error("unexpected positional argument: " + parsed["positionals"][0], argv, p) }
     mut result := {"ok": false, "code": "operation_failed", "error": "operation could not be completed safely"}

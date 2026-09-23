@@ -1,23 +1,26 @@
-from src.filesystem import confined_path, confined_write, confined_copy, collection_sharded, directory_page, page_cursor, is_link
+from src.filesystem import collection_sharded, directory_page, page_cursor, is_link
 from src.storage import protected_output, validate_state_path
+from src.maintenance import begin_job, exact_write, exact_copy, job_progress, noop_checkpoint
 
 // Out-of-place rebuild: no mutable lookup index, and no changes to the source.
 // The operator must stop writers for the duration; directory pages are not a
 // cross-file snapshot. A failed destination remains inspectable, never active.
-export func migrate_state(source, destination) {
+export func migrate_state(source, destination) { return migrate_resumable(source,destination,false,noop_checkpoint) }
+
+export func migrate_resumable(source, destination, resume, checkpoint) {
     if type(destination) != "string" || destination == "" { return {"ok":false,"code":"migration_output","error":"migrate requires --output naming a new directory"} }
-    problem := protected_output(source,destination)
+    problem := validate_state_path(source); if problem!="" { return {"ok":false,"code":"unsafe_source","error":problem} }
+    problem = protected_output(source,destination)
     if problem != "" { return {"ok":false,"code":"unsafe_output","error":problem} }
-    if file_exists(destination) || is_link(destination) { return {"ok":false,"code":"output_exists","error":"migration never reuses or replaces a destination"} }
+    if !resume && (file_exists(destination) || is_link(destination)) { return {"ok":false,"code":"output_exists","error":"migration never reuses or replaces a destination"} }
     mut count := 0; mut total_bytes := 0
     try {
-        // Exclusive marker reserves the new destination and records incomplete work.
-        confined_write(destination+"/.migration-in-progress","AssetWorks sharded rebuild\n",false)
+        begin_job(source,destination,"migration","",resume,checkpoint)
+        exact_write(destination+"/.migration-in-progress","AssetWorks sharded rebuild\n",checkpoint)
         for collection in ["records","history","transactions"] {
-            confined_write(destination+"/"+collection+"/.assetworks-shards","sha256-256-v1\n",false)
+            exact_write(destination+"/"+collection+"/.assetworks-shards","sha256-256-v1\n",checkpoint)
             input := source+"/"+collection
             sharded := collection_sharded(input)
-            input_locator := confined_path(input); output_locator := confined_path(destination+"/"+collection)
             mut after := ""; mut done := false
             while !done {
                 mut names := []; mut next := after
@@ -40,18 +43,32 @@ export func migrate_state(source, destination) {
                     if type(name)!="string" || !regex_match(name,"^[a-z0-9][a-z0-9-]{1,127}\\.json$") { throw("unsafe collection filename") }
                     shard := substring(sha256(name),0,2)
                     source_relative := name; if sharded { source_relative=shard+"/"+name }
-                    receipt := copy_file_beneath(input_locator["root"],input_locator["relative"]+"/"+source_relative,output_locator["root"],output_locator["relative"]+"/"+shard+"/"+name,4194304)
+                    receipt := exact_copy(input+"/"+source_relative,destination+"/"+collection+"/"+shard+"/"+name,4194304,checkpoint)
                     count = count+1; total_bytes = total_bytes+receipt["bytes"]
                 }
                 if !done && next == after { throw("migration cursor did not advance") }
                 after = next
+                job_progress(destination,"copying-"+collection,count,total_bytes,checkpoint)
             }
         }
-        confined_copy(source+"/metadata.json",destination+"/metadata.json",65536)
-        for collection in ["records","history","locks"] { confined_write(destination+"/"+collection+"/.assetworks-directory","AssetWorks managed directory\n",false) }
+        exact_copy(source+"/metadata.json",destination+"/metadata.json",65536,checkpoint)
+        // A resumed source deletion must not leave unaccounted destination records.
+        mut output_count := 0
+        for collection in ["records","history","transactions"] {
+            mut cursor := ""; mut finished := false
+            while !finished {
+                page := directory_page(destination+"/"+collection,cursor,1000)
+                if !page["ok"] { throw(page["error"]) }
+                output_count=output_count+len(page["names"]); finished=!page["truncated"]
+                if !finished { cursor=page_cursor(page,page["names"][len(page["names"])-1]) }
+            }
+        }
+        if output_count!=count { throw("source changed or destination contains unexpected files") }
+        for collection in ["records","history","locks"] { exact_write(destination+"/"+collection+"/.assetworks-directory","AssetWorks managed directory\n",checkpoint) }
         receipt := {"schema_version":"1.0.0","layout":"sharded-v1","files":count,"bytes":total_bytes,"source":source}
-        confined_write(destination+"/migration.json",to_json(receipt)+"\n",false)
-        delete_file(destination+"/.migration-in-progress")
+        exact_write(destination+"/migration.json",to_json(receipt)+"\n",checkpoint)
+        delete_file(destination+"/.migration-in-progress"); checkpoint("migration-marker-removed")
+        job_progress(destination,"complete",count,total_bytes,checkpoint)
         return {"ok":true,"value":receipt}
     } except error { return {"ok":false,"code":"migration_failed","error":"migration failed; source unchanged, inspect incomplete destination: "+to_string(error)} }
 }

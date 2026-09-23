@@ -1,0 +1,69 @@
+from src.filesystem import confined_read, confined_write, confined_copy, confined_digest, is_link
+from src.storage import canonical_destination, validate_path_components
+from src.common import parse_object, get
+
+export func noop_checkpoint(phase) {}
+
+export func maintenance_output(source, destination) {
+    if validate_path_components(source)!="" || validate_path_components(destination)!="" { return "unsafe maintenance path" }
+    root:=lower(canonical_destination(source)); target:=lower(canonical_destination(destination))
+    if root==target || starts_with(target,root+"/") { return "output must be outside source" }
+    return ""
+}
+
+// Callbacks are test-only fault injection. No environment-controlled crash path.
+export func exact_write(path, text, checkpoint) {
+    if file_exists(path) || is_link(path) {
+        if confined_read(path,1048576)!=text { throw("maintenance conflict: "+path) }
+    } else { confined_write(path,text,false); checkpoint("write:"+path) }
+}
+
+export func exact_copy(source, destination, maximum, checkpoint) {
+    if file_exists(destination) || is_link(destination) {
+        expected := confined_digest(source,maximum); existing := confined_digest(destination,maximum)
+        if expected["sha256"]!=existing["sha256"] || expected["bytes"]!=existing["bytes"] { throw("maintenance byte conflict: "+destination) }
+        return existing
+    }
+    result := confined_copy(source,destination,maximum); checkpoint("copy:"+destination)
+    return result
+}
+
+export func begin_job(source, destination, kind, artifacts, resume, checkpoint) {
+    if validate_path_components(source)!="" || validate_path_components(destination)!="" { throw("unsafe maintenance path") }
+    receipt := {"schema_version":"1.0.0","kind":kind,"source":canonical_destination(source),"destination":canonical_destination(destination),"artifacts":artifacts}
+    text := to_json(receipt)+"\n"
+    if resume {
+        if confined_read(destination+"/.maintenance-job.json",65536)!=text { throw("resume requires the original matching job receipt") }
+    } else {
+        if file_exists(destination) || is_link(destination) { throw("maintenance destination must be new") }
+        confined_write(destination+"/.maintenance-job.json",text,false); checkpoint("job-created")
+    }
+}
+
+export func job_progress(destination, phase, files, bytes, checkpoint) {
+    confined_write(destination+"/.maintenance-progress.json",to_json({"phase":phase,"files":files,"bytes":bytes})+"\n",true)
+    checkpoint("progress:"+phase)
+}
+
+export func maintenance_status(destination) {
+    try {
+        job := parse_object(confined_read(destination+"/.maintenance-job.json",65536),"job")
+        if !job["ok"] || get(job["value"],"destination","")!=canonical_destination(destination) { throw("job destination mismatch") }
+        progress := {"phase":"starting","files":0,"bytes":0}
+        if file_exists(destination+"/.maintenance-progress.json") { progress=parse_json(confined_read(destination+"/.maintenance-progress.json",65536)) }
+        return {"ok":true,"value":{"job":job["value"],"progress":progress}}
+    } except error { return {"ok":false,"code":"maintenance_status","error":to_string(error)} }
+}
+
+// Quarantine preserves conflicting evidence; no recursive deletion or retention
+// guessing. Parent directories must be private and operators must stop workers.
+export func abandon_maintenance(destination, quarantine) {
+    result := maintenance_status(destination); if !result["ok"] { return result }
+    try {
+        job := result["value"]["job"]
+        if maintenance_output(destination,quarantine)!="" || maintenance_output(job["source"],quarantine)!="" || validate_path_components(quarantine)!="" { throw("unsafe quarantine path") }
+        if file_exists(destination+"/backup.json") || file_exists(destination+"/migration.json") { throw("completed or finalizing jobs must not be abandoned") }
+        if !publish_directory_noreplace(canonical_destination(destination),canonical_destination(quarantine)) { throw("quarantine publication failed") }
+        return {"ok":true,"value":{"quarantine":quarantine,"evidence_retained":true}}
+    } except error { return {"ok":false,"code":"maintenance_abandon","error":to_string(error)} }
+}

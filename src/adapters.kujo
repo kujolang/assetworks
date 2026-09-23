@@ -1,3 +1,4 @@
+from src.captions import execute_captions
 from src.isolation import isolation_config_error, execute_isolated
 from src.common import get, has, parse_object, bounded_int
 from src.filesystem import confined_path, confined_read, confined_write, ensure_managed_dir, is_link
@@ -17,6 +18,10 @@ export func load_adapter(path) {
     try { text = confined_read(path, 65536) } except error { return adapter_error("adapter_config", "adapter configuration must be a safe file no larger than 64 KiB") }
     parsed := parse_object(text, "adapter configuration"); if !parsed["ok"] { return parsed }
     config := parsed["value"]
+    if get(config,"provider_class","")=="kujo-captions" {
+        if get(config,"schema_version","")!="1.0.0" || get(config,"offline",false)!=true || len(keys(config))!=3 { return adapter_error("adapter_config","caption config requires only schema_version, provider_class and offline=true") }
+        return {"ok":true,"value":config}
+    }
     for key in keys(config) {
         if !has(["schema_version", "provider_class", "binary", "probe_binary", "offline", "timeout_ms", "max_output_bytes", "artifact_max_bytes", "isolation", "docker_binary", "docker_host", "image"], key) { return adapter_error("adapter_config", "unknown adapter option: " + key) }
     }
@@ -67,6 +72,8 @@ func discard_stage(directory, names) {
 // Only explicit FFmpeg binaries run. No shell, arbitrary argv, filters or URLs
 // are accepted. Inputs are copied through a confined read before execution.
 export func execute_transform(command, payload, source_path, state, config, dry_run) {
+    if get(config,"provider_class","")=="kujo-captions" { return execute_captions(command,payload,source_path,state,dry_run) }
+    if !has(["render","convert","resize","thumbnail"],command) { return adapter_error("adapter_command","FFmpeg requires a media transform command") }
     input_format := get(payload, "input_format", "")
     output_format := get(payload, "output_format", "")
     if !has(["png", "jpeg", "webp", "wav", "flac", "mp4"], input_format) || !has(["png", "jpeg", "webp", "wav", "flac", "mp4"], output_format) { return adapter_error("adapter_format", "input/output format must be png/jpeg/webp/wav/flac/mp4") }

@@ -2,14 +2,15 @@ from src.validation import verify_complete_state
 from src.common import get, parse_object
 from src.filesystem import confined_read, confined_write, confined_copy, confined_digest, directory_page, page_cursor, is_link
 from src.storage import protected_output, validate_state_path, canonical_destination
-from src.migration import migrate_state
+from src.migration import migrate_resumable
+from src.maintenance import begin_job, exact_write, exact_copy, job_progress, noop_checkpoint, maintenance_output
 
 func fail(message) { return {"ok":false,"code":"backup_failed","error":message} }
 func flush_inventory(root, ledger) {
     if len(ledger["entries"])==0 { return ledger }
     text := to_json({"previous":ledger["tip"],"entries":ledger["entries"]})+"\n"
     if byte_length(text)>1048576 { throw("inventory page exceeds 1 MiB") }
-    confined_write(root+"/inventory/"+to_string(ledger["pages"])+".json",text,false)
+    exact_write(root+"/inventory/"+to_string(ledger["pages"])+".json",text,ledger["checkpoint"])
     ledger["pages"] = ledger["pages"]+1; ledger["tip"] = sha256(text); ledger["entries"] = []
     return ledger
 }
@@ -22,16 +23,20 @@ func inventory_file(root, relative, maximum, ledger) {
     return ledger
 }
 
-export func backup_state(source, destination, artifact_root, key) {
+export func backup_state(source, destination, artifact_root, key) { return backup_resumable(source,destination,artifact_root,key,false,noop_checkpoint) }
+
+export func backup_resumable(source, destination, artifact_root, key, resume, checkpoint) {
     if destination=="" { return fail("backup requires --output naming a new directory") }
     problem := protected_output(source,destination); if problem!="" { return fail(problem) }
-    if file_exists(destination) || is_link(destination) { return fail("backup destination must be new") }
+    if !resume && (file_exists(destination) || is_link(destination)) { return fail("backup destination must be new") }
     try {
         // The source must be quiescent. The copied state is independently
         // reconciled after all artifact bytes have been captured.
-        migrated := migrate_state(source,destination+"/state")
+        begin_job(source,destination,"backup",artifact_root,resume,checkpoint)
+        migrated := migrate_resumable(source,destination+"/state",file_exists(destination+"/state/.maintenance-job.json"),checkpoint)
         if !migrated["ok"] { return migrated }
-        ledger := {"pages":0,"tip":"","files":0,"bytes":0,"entries":[]}
+        ledger := {"pages":0,"tip":"","files":0,"bytes":0,"entries":[],"checkpoint":checkpoint}
+        copied_artifacts := {}
         ledger = inventory_file(destination,"state/metadata.json",65536,ledger)
         for collection in ["records","history","transactions"] {
             ledger = inventory_file(destination,"state/"+collection+"/.assetworks-shards",64,ledger)
@@ -51,18 +56,36 @@ export func backup_state(source, destination, artifact_root, key) {
                             digest := get(artifact,"sha256",""); bytes := get(artifact,"bytes",-1)
                             if type(digest)!="string" || !regex_match(digest,"^[a-f0-9]{64}$") || type(bytes)!="int" || bytes<0 || bytes>4294967296 { throw("invalid artifact receipt") }
                             artifact_relative := "artifacts/"+digest+".blob"
-                            if !file_exists(destination+"/"+artifact_relative) {
+                            if has_key(copied_artifacts,digest)!=1 {
                                 source_path := get(artifact,"path","")
                                 if artifact_root!="" { source_path = artifact_root+"/"+digest+".blob" }
-                                copied := confined_copy(source_path,destination+"/"+artifact_relative,4294967296)
+                                copied := exact_copy(source_path,destination+"/"+artifact_relative,4294967296,checkpoint)
                                 if copied["sha256"]!=digest || copied["bytes"]!=bytes { throw("artifact changed or does not match record") }
-                                ledger = inventory_file(destination,artifact_relative,4294967296,ledger)
-                            }
+                                // Bounded per-run cache avoids repeatedly copying/hashing
+                                // shared media; eviction only adds verification work.
+                                if len(keys(copied_artifacts))>=1000 { copied_artifacts={} }
+                                copied_artifacts[digest]=bytes
+                            } else if copied_artifacts[digest]!=bytes { throw("inconsistent shared artifact size") }
                         }
                     }
                 }
+                job_progress(destination,"inventory-"+collection,ledger["files"],ledger["bytes"],checkpoint)
                 done = !page["truncated"]
                 if !done { next := page_cursor(page,page["names"][len(page["names"])-1]); if next==after { throw("backup cursor did not advance") }; after=next }
+            }
+        }
+        // Enumerate unique content-addressed artifacts separately so a retry
+        // reconstructs identical inventory pages without retaining a global set.
+        if file_exists(destination+"/artifacts") {
+            mut after := ""; mut done := false
+            while !done {
+                page := list_dir_page(destination+"/artifacts",after,1000,".blob")
+                for name in page["entries"] {
+                    if !regex_match(name,"^[a-f0-9]{64}\\.blob$") { throw("unsafe artifact filename") }
+                    ledger = inventory_file(destination,"artifacts/"+name,4294967296,ledger)
+                }
+                done=!page["truncated"]; after=page["next_after"]
+                job_progress(destination,"inventory-artifacts",ledger["files"],ledger["bytes"],checkpoint)
             }
         }
         checked := verify_complete_state(destination+"/state",destination+"/artifacts",key)
@@ -70,9 +93,10 @@ export func backup_state(source, destination, artifact_root, key) {
         ledger = flush_inventory(destination,ledger)
         manifest := {"schema_version":"1.0.0","format":"assetworks-backup-v1","pages":ledger["pages"],"tip":ledger["tip"],"files":ledger["files"],"bytes":ledger["bytes"]}
         text := to_json(manifest)+"\n"
-        confined_write(destination+"/backup.json",text,false)
+        exact_write(destination+"/backup.json",text,checkpoint)
+        job_progress(destination,"complete",ledger["files"],ledger["bytes"],checkpoint)
         return {"ok":true,"value":{"backup":destination,"backup_sha256":sha256(text),"files":ledger["files"],"bytes":ledger["bytes"],"pages":ledger["pages"]}}
-    } except error { return fail("backup incomplete; no valid completion manifest was published: "+to_string(error)) }
+    } except error { return fail("backup did not finish; inspect completion receipt and retained evidence before resuming: "+to_string(error)) }
 }
 
 func safe_backup_path(path) {
@@ -85,9 +109,11 @@ func safe_backup_path(path) {
     return parts[2]==substring(sha256(parts[3]),0,2)
 }
 
-export func restore_state(backup, destination, expected, key) {
+export func restore_state(backup, destination, expected, key) { return restore_with_checkpoints(backup,destination,expected,key,noop_checkpoint) }
+
+export func restore_with_checkpoints(backup, destination, expected, key, checkpoint) {
     if destination=="" || !regex_match(expected,"^[a-f0-9]{64}$") { return fail("restore requires --output and the externally retained --backup-sha256 receipt") }
-    problem := protected_output(backup,destination); if problem!="" { return fail(problem) }
+    problem := maintenance_output(backup,destination); if problem!="" { return fail(problem) }
     if file_exists(destination) || is_link(destination) { return fail("restore never replaces an existing destination") }
     mut stage := ""
     try {
@@ -98,7 +124,7 @@ export func restore_state(backup, destination, expected, key) {
         target := canonical_destination(destination)
         parent := dirname(target)
         if validate_state_path(parent)!="" || !path_is_dir(parent) { throw("restore requires an existing safe parent directory") }
-        stage = create_temp_dir(parent,".assetworks-restore-")
+        stage = create_temp_dir(parent,".assetworks-restore-"); checkpoint("restore-staging-created")
         mut previous := ""; mut files := 0; mut bytes := 0
         for index in range(0,manifest["pages"]) {
             page_text := confined_read(backup+"/inventory/"+to_string(index)+".json",1048576)
@@ -110,17 +136,18 @@ export func restore_state(backup, destination, expected, key) {
                 relative := entry["path"]; output := relative
                 maximum := 4194304
                 if starts_with(relative,"state/") { output = substring(relative,6,len(relative)) } else { maximum=4294967296 }
-                copied := confined_copy(backup+"/"+relative,stage+"/"+output,maximum)
+                copied := confined_copy(backup+"/"+relative,stage+"/"+output,maximum); checkpoint("restore-copy:"+output)
                 if copied["sha256"]!=entry["sha256"] || copied["bytes"]!=entry["bytes"] { throw("backup file digest mismatch") }
                 files = files+1; bytes = bytes+copied["bytes"]
             }
         }
         if previous!=get(manifest,"tip",null) || files!=get(manifest,"files",null) || bytes!=get(manifest,"bytes",null) { throw("inventory terminal receipt mismatch") }
-        for collection in ["records","history","locks"] { confined_write(stage+"/"+collection+"/.assetworks-directory","AssetWorks managed directory\n",false) }
+        for collection in ["records","history","locks"] { confined_write(stage+"/"+collection+"/.assetworks-directory","AssetWorks managed directory\n",false); checkpoint("restore-directory:"+collection) }
         checked := verify_complete_state(stage,stage+"/artifacts",key)
         if !checked["ok"] { throw("restored state validation failed: "+get(checked,"error","invalid state")) }
         // Publication uses the runtime's atomic no-replace directory primitive.
         // The parent is operator-owned and must remain quiescent during restore.
+        checkpoint("before-restore-publication")
         if validate_state_path(parent)!="" || !publish_directory_noreplace(stage,target) { throw("restore publication failed") }
         return {"ok":true,"value":{"state":target,"artifact_root":target+"/artifacts","files":files,"bytes":bytes,"backup_sha256":expected}}
     } except error { return fail("restore failed; destination not published; inspect owned staging directory "+stage+": "+to_string(error)) }

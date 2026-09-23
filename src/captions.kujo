@@ -1,0 +1,64 @@
+from src.common import get, has
+from src.filesystem import confined_read, confined_write
+
+func time_value(text, format) {
+    separator := "."; if format=="srt" { separator="," }
+    if len(text)!=12 || substring(text,2,3)!=":" || substring(text,5,6)!=":" || substring(text,8,9)!=separator { throw("timestamps require HH:MM:SS.mmm (comma for SRT)") }
+    digits := replace_str(replace_str(text,":",""),separator,"")
+    if !regex_match(digits,"^[0-9]{9}$") { throw("invalid timestamp digits") }
+    hours:=to_int(substring(text,0,2)); minutes:=to_int(substring(text,3,5)); seconds:=to_int(substring(text,6,8)); millis:=to_int(substring(text,9,12))
+    if minutes>59 || seconds>59 { throw("invalid timestamp range") }
+    return hours*3600000+minutes*60000+seconds*1000+millis
+}
+
+export func convert_captions(text, input_format, output_format) {
+    if byte_length(text)>1048576 || !has(["srt","vtt"],input_format) || !has(["srt","vtt","text"],output_format) { throw("unsupported caption format or input exceeds 1 MiB") }
+    normalized:=replace_str(text,"\r\n","\n")
+    if regex_match(normalized,"[\\x00-\\x08\\x0B-\\x1F\\x7F]") { throw("caption controls are not supported") }
+    if input_format=="vtt" {
+        if !starts_with(normalized,"WEBVTT\n\n") { throw("expected plain WEBVTT header") }
+        normalized=substring(normalized,8,len(normalized))
+    }
+    blocks:=split(trim(normalized),"\n\n")
+    if len(blocks)<1 || len(blocks)>10000 { throw("captions require 1..10000 cues") }
+    mut rendered:=[]; mut previous_end:=0; mut count:=0
+    for block in blocks {
+        lines:=split(block,"\n"); offset:=0
+        if input_format=="srt" {
+            if !regex_match(lines[0],"^[0-9]{1,5}$") || to_int(lines[0])!=count+1 { throw("SRT cue numbers must be sequential") }
+            offset=1
+        }
+        if len(lines)<offset+2 { throw("cue requires timing and text") }
+        times:=split(lines[offset]," --> ")
+        if len(times)!=2 { throw("cue requires exactly one timing range; settings are unsupported") }
+        start:=time_value(times[0],input_format); end:=time_value(times[1],input_format)
+        if start<previous_end || end<=start { throw("cues must be ordered, non-overlapping and non-empty") }
+        body:=join(slice(lines,offset+1,len(lines)),"\n")
+        if trim(body)=="" || byte_length(body)>32768 || regex_match(body,"[<>&]") { throw("plain-text cue required; markup and entities are unsupported") }
+        count=count+1; previous_end=end
+        if output_format=="text" { rendered=push(rendered,body) }
+        else {
+            timing:=replace_str(lines[offset],",",".")
+            if output_format=="srt" { timing=to_string(count)+"\n"+replace_str(timing,".",",") }
+            rendered=push(rendered,timing+"\n"+body)
+        }
+    }
+    prefix:=""; if output_format=="vtt" { prefix="WEBVTT\n\n" }
+    output:=prefix+join(rendered,"\n\n")+"\n"
+    if byte_length(output)>1048576 { throw("caption output exceeds 1 MiB") }
+    return {"text":output,"cues":count}
+}
+
+export func execute_captions(command, payload, source, state, dry_run) {
+    try {
+        input_format:=get(payload,"input_format",""); output_format:=get(payload,"format","")
+        if !has(["captions","transcript"],command) || (command=="transcript" && output_format!="text") || (command=="captions" && !has(["srt","vtt"],output_format)) { throw("caption adapter requires captions srt/vtt or transcript text") }
+        text:=confined_read(source,1048576); converted:=convert_captions(text,input_format,output_format)
+        receipt:={"execution":"planned","provider_class":"kujo-captions","source_sha256":sha256(text),"input_format":input_format,"output_format":output_format,"cues":converted["cues"]}
+        if dry_run { return {"ok":true,"value":{"receipt":receipt}} }
+        output:=converted["text"]; digest:=sha256(output); path:=state+"/artifacts/"+digest+"."+output_format
+        try { confined_write(path,output,false) } except error { if confined_read(path,1048576)!=output { throw("caption publication conflict") } }
+        receipt["execution"]="completed"
+        return {"ok":true,"value":{"artifact":{"path":path_absolute(path),"sha256":digest,"bytes":byte_length(output)},"receipt":receipt}}
+    } except error { return {"ok":false,"code":"caption_adapter","error":to_string(error)} }
+}

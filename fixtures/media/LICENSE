@@ -7,3 +7,5 @@ third-party media is included.
 input.jpeg, input.webp and input.flac are FFmpeg-derived encodings of those
 same original fixtures, also dedicated under CC0-1.0. Regeneration logic is
 in scripts/generate_media_fixtures.kujo; no downloaded media is used.
+
+The original captions.srt accessibility fixture is also dedicated under CC0-1.0.

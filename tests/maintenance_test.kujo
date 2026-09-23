@@ -1,0 +1,72 @@
+from src.core import dispatch
+from src.args import parse_args
+from src.migration import migrate_resumable
+from src.backup import backup_resumable, restore_state
+from src.maintenance import noop_checkpoint, maintenance_status, abandon_maintenance
+from src.filesystem import confined_read, confined_write
+from src.storage import record_path, validate_state_path
+from tests.support import test_root, cleanup_tree, make_link
+mut passed := 0; mut failed := 0
+func check(ok,label) { if ok { passed=passed+1 } else { failed=failed+1; eprint("FAIL: "+label) } }
+func opts(values) { return parse_args(values,["json","force","dry-run","resume"]) }
+root := test_root("maintenance"); create_dir(root)
+source := root+"/source"; write_file(root+"/asset.dat","durable media",false)
+created := dispatch("plan",opts(["--state",source,"--input","fixtures/core.json","--actor","maintenance-test","--id","plan-resume","--path",root+"/asset.dat"]))
+check(created["ok"],"source fixture")
+mut boundaries := 0; mut stop_at := 0
+func checkpoint(phase) { boundaries=boundaries+1; if boundaries==stop_at { throw("simulated interruption: "+phase) } }
+for kind in ["migration","backup"] {
+    baseline := root+"/baseline-"+kind; boundaries=0; stop_at=0
+    result := {}; if kind=="migration" { result=migrate_resumable(source,baseline,false,checkpoint) } else { result=backup_resumable(source,baseline,"","",false,checkpoint) }
+    check(result["ok"],kind+" baseline")
+    count := boundaries
+    for point in range(1,count+1) {
+        target := root+"/"+kind+"-"+to_string(point); boundaries=0; stop_at=point
+        interrupted := {}; if kind=="migration" { interrupted=migrate_resumable(source,target,false,checkpoint) } else { interrupted=backup_resumable(source,target,"","",false,checkpoint) }
+        check(!interrupted["ok"],kind+" interrupted boundary "+to_string(point))
+        if point==1 { check(validate_state_path(target)!="","first job write cannot activate incomplete state") }
+        resumed := {}; if kind=="migration" { resumed=migrate_resumable(source,target,true,noop_checkpoint) } else { resumed=backup_resumable(source,target,"","",true,noop_checkpoint) }
+        if !resumed["ok"] { eprint(to_json(resumed)) }
+        check(resumed["ok"],kind+" resumes boundary "+to_string(point))
+        status := maintenance_status(target)
+        check(status["ok"] && status["value"]["progress"]["phase"]=="complete","completed progress receipt")
+        if kind=="backup" && resumed["ok"] {
+            check(confined_read(target+"/backup.json",65536)==confined_read(baseline+"/backup.json",65536),"resumed backup has identical inventory digest")
+            restored := restore_state(target,target+"-restored",resumed["value"]["backup_sha256"],"")
+            if !restored["ok"] { eprint(to_json(restored)) }
+            check(restored["ok"],"resumed backup restores")
+            cleanup_tree(target+"-restored")
+        }
+        cleanup_tree(target)
+    }
+}
+target := root+"/conflict"
+func stop_copy(phase) { if starts_with(phase,"copy:") { throw("copied one file") } }
+check(!migrate_resumable(source,target,false,stop_copy)["ok"],"interrupt after copied record")
+record := record_path(target,"plan-resume"); confined_write(record,"conflicting evidence",true)
+check(!migrate_resumable(source,target,true,noop_checkpoint)["ok"] && confined_read(record,1024)=="conflicting evidence","conflict retained on resume")
+check(!migrate_resumable(root+"/different",target,true,noop_checkpoint)["ok"],"different source rejected")
+check(!abandon_maintenance(target,source+"/nested")["ok"],"quarantine cannot enter source")
+check(abandon_maintenance(target,root+"/quarantine")["ok"] && !file_exists(target),"abandon atomically quarantines evidence")
+check(confined_read(record_path(root+"/quarantine","plan-resume"),1024)=="conflicting evidence","quarantine retains conflicting bytes")
+check(!abandon_maintenance(root+"/baseline-migration",root+"/completed-quarantine")["ok"],"completed migration cannot be abandoned")
+check(!dispatch("maintenance abandon",opts(["--state",root+"/quarantine","--output",root+"/dry","--dry-run"]))["ok"],"dry-run never triggers quarantine")
+check(!dispatch("restore",opts(["--state",source,"--resume"]))["ok"],"unsupported resume rejected")
+deleted:=root+"/deleted-source"
+check(!migrate_resumable(source,deleted,false,stop_copy)["ok"],"source deletion fixture interrupted")
+original:=confined_read(record_path(source,"plan-resume"),1048576)
+delete_file(record_path(source,"plan-resume"))
+check(!migrate_resumable(source,deleted,true,noop_checkpoint)["ok"],"source deletion detected before activation")
+confined_write(record_path(source,"plan-resume"),original,false)
+linked:=root+"/linked"
+check(!migrate_resumable(source,linked,false,stop_copy)["ok"],"linked destination fixture")
+delete_file(record_path(linked,"plan-resume")); make_link(record_path(source,"plan-resume"),record_path(linked,"plan-resume"),false)
+check(!migrate_resumable(source,linked,true,noop_checkpoint)["ok"],"resume rejects destination links")
+duplicate:=dispatch("plan",opts(["--state",source,"--input","fixtures/core.json","--actor","maintenance-test","--id","plan-shared","--path",root+"/asset.dat"]))
+check(duplicate["ok"],"shared-media fixture")
+shared:=backup_resumable(source,root+"/shared-backup","","",false,noop_checkpoint)
+check(shared["ok"] && backup_resumable(source,root+"/shared-backup","","",true,noop_checkpoint)["ok"],"shared artifact inventory survives resume")
+if shared["ok"] { check(restore_state(root+"/shared-backup",root+"/shared-restored",shared["value"]["backup_sha256"],"")["ok"],"shared media restores without duplicate publication") }
+cleanup_tree(root)
+print(to_string(passed)+" passed; "+to_string(failed)+" failed")
+if failed>0 { exit(1) }

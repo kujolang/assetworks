@@ -1,0 +1,11 @@
+from src.backup import restore_state
+
+// Reuses complete inventory/media/authentication verification and atomic
+// publication. The restored directory is retained for operator inspection.
+export func recovery_drill(backup, destination, expected, key) {
+    start:=current_timestamp()
+    restored:=restore_state(backup,destination,expected,key)
+    if !restored["ok"] { return {"ok":false,"code":"drill_failed","error":"Recovery drill failed; destination was not accepted. Inspect locally retained staging and verify backup, receipt and trust availability.","value":{"verified":false,"elapsed_ms":current_timestamp()-start}} }
+    value:=restored["value"]
+    return {"ok":true,"value":{"schema_version":"1.0.0","verified":true,"files":value["files"],"bytes":value["bytes"],"elapsed_ms":current_timestamp()-start,"backup_sha256":expected,"restored_state_retained":true}}
+}
