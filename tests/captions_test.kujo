@@ -6,7 +6,7 @@ from tests.support import test_root, cleanup_tree
 mut passed:=0; mut failed:=0
 func check(ok,label) { if ok { passed=passed+1 } else { failed=failed+1; eprint("FAIL: "+label) } }
 func opts(values) { return parse_args(values,["json","force","dry-run","resume"]) }
-input:=read_file("fixtures/media/captions.srt")
+input:=replace_str(read_file("fixtures/media/captions.srt"),"\r\n","\n")
 converted:=convert_captions(input,"srt","vtt")
 check(starts_with(converted["text"],"WEBVTT\n\n00:00:00.000 --> 00:00:01.500"),"canonical VTT output")
 check(convert_captions(converted["text"],"vtt","srt")["text"]==input,"exact canonical SRT round trip")
