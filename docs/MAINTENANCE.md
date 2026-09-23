@@ -1,5 +1,7 @@
 # Resumable maintenance and recovery drills
 
+Available on development `main`; these additions are not in the existing v0.3.0 archive.
+
 Stop writers and other maintenance processes before starting or resuming. Source, destination and parent directories must remain under the operator's control. One worker owns a job; these commands do not supply distributed locks or snapshots.
 
 ```sh

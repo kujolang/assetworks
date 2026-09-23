@@ -6,6 +6,8 @@ The Kujo `scripts/codec_provenance.kujo` script records the immutable image ID, 
 
 Review codec/security advisories weekly and after urgent upstream notices. Rebuild and rerun isolation/media/recovery tests before adopting updates; retain the previous immutable image and its evidence for rollback. A green conversion test does not prove absence of CVEs. Base-image digest changes require a reviewed source change as well as package-update verification.
 
+The first successful hosted rehearsal is [run 35911461305](https://github.com/kujolang/assetworks/actions/runs/35911461305), with 292 installed packages. The downloaded `codec.json` SHA-256 is `962f20cdf01f1f9dbbefc85e42f90d7a8d08d6ca9fddc7bee72f15fa84475508`. Its SBOM passed Kujo `json_schema_validate` against the [official SPDX 2.3 schema](https://raw.githubusercontent.com/spdx/spdx-spec/v2.3/schemas/spdx-schema.json), schema SHA-256 `239208b7ac287b3cf5d9a9af23f9d69863971102a5e1587a27a398b43490b89b`.
+
 ## Reproducible package snapshots
 
 Ubuntu's [snapshot service](https://ubuntu.com/server/docs/how-to/software/snapshot-service/) supports selecting repository state by snapshot ID. Pinning both the base digest and package snapshot would improve rebuild reproducibility, but would also freeze security updates until the snapshot is advanced. The current workflow deliberately tests current package updates; byte-identical rebuilds are not claimed. Before a release adopts snapshots, choose and record a supported snapshot for every configured repository, verify architecture availability and retained packages, then test the new image on the same gates. Do not disable repository signature verification to force an old snapshot to install.

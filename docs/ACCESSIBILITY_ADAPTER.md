@@ -1,5 +1,7 @@
 # Offline caption conversion and transcript extraction
 
+Available on development `main`; these additions are not in the existing v0.3.0 archive.
+
 The built-in `kujo-captions` adapter converts a deliberately small plain-text SRT/WebVTT subset and extracts text transcripts. It runs entirely in Kujo, with no codec process, model, network call or downloaded media.
 
 ```json
