@@ -1,7 +1,7 @@
 from src.captions import execute_captions
 from src.isolation import isolation_config_error, execute_isolated
 from src.common import get, has, parse_object, bounded_int
-from src.filesystem import confined_path, confined_read, confined_write, ensure_managed_dir, is_link
+from src.filesystem import confined_path, confined_read, confined_write, confined_copy, ensure_managed_dir, is_link
 
 func adapter_error(code, message) { return {"ok": false, "code": code, "error": message} }
 
@@ -88,10 +88,9 @@ export func execute_transform(command, payload, source_path, state, config, dry_
     problem := ensure_managed_dir(directory); if problem != "" { return adapter_error("adapter_stage", problem) }
     source_name := "source." + input_format; output_name := "output." + output_format
     stage_files := [source_name, output_name, ".assetworks-directory"]
-    mut input_bytes := null
-    try { input_bytes = read_media_bytes(source_path, 8388608); confined_write(directory + "/" + source_name, input_bytes, false) }
+    mut source_checksum := ""
+    try { source_checksum = confined_copy(source_path, directory + "/" + source_name, 8388608)["sha256"] }
     except error { discard_stage(directory, stage_files); return adapter_error("adapter_input", "input must be a confined regular file no larger than 8 MiB") }
-    source_checksum := sha256(input_bytes); input_bytes = null
     input_demuxer := input_format; if has(["png", "jpeg", "webp"], input_format) { input_demuxer = "image2" }; if input_format == "mp4" { input_demuxer = "mov" }
     argv := [config["binary"], "-nostdin", "-hide_banner", "-loglevel", "error", "-protocol_whitelist", "file,pipe", "-f", input_demuxer, "-i", process_path(path_absolute(directory + "/" + source_name)), "-map_metadata", "-1", "-threads", "1"]
     if has(["resize", "thumbnail"], command) { argv = concat(argv, ["-vf", "scale=" + to_string(width) + ":" + to_string(height)]) }
