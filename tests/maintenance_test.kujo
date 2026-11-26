@@ -67,6 +67,21 @@ check(duplicate["ok"],"shared-media fixture")
 shared:=backup_resumable(source,root+"/shared-backup","","",false,noop_checkpoint)
 check(shared["ok"] && backup_resumable(source,root+"/shared-backup","","",true,noop_checkpoint)["ok"],"shared artifact inventory survives resume")
 if shared["ok"] { check(restore_state(root+"/shared-backup",root+"/shared-restored",shared["value"]["backup_sha256"],"")["ok"],"shared media restores without duplicate publication") }
+func stop_after_history(phase) { if starts_with(phase,"copy:") && contains(phase,"/history/")==1 { throw("stopped after copying history") } }
+partial := root+"/blocked-partial"
+check(!migrate_resumable(source,partial,false,stop_after_history)["ok"],"interrupt migration after records and history have been copied")
+check(!dispatch("report",opts(["--state",partial]))["ok"],"partial migration cannot be reported as active state")
+check(!dispatch("history",opts(["--state",partial]))["ok"],"partial migration history is unavailable")
+check(migrate_resumable(source,partial,true,noop_checkpoint)["ok"] && dispatch("report",opts(["--state",partial]))["ok"],"completed migration can be reported")
+
+func stop_after_media(phase) { if starts_with(phase,"copy:") && contains(phase,"/artifacts/")==1 { throw("stopped after copying media") } }
+partial_backup := root+"/blocked-backup"
+check(!backup_resumable(source,partial_backup,"","",false,stop_after_media)["ok"],"interrupt backup after copying media")
+unexpected := partial_backup+"/artifacts/"+repeat("0",64)+".blob"
+confined_write(unexpected,"fixture bytes at a stale name",false)
+resumed := backup_resumable(source,partial_backup,"","",true,noop_checkpoint)
+check(!resumed["ok"] && !file_exists(partial_backup+"/backup.json"),"backup rejects mismatched digest and artifact filename")
+check(confined_read(unexpected,1024)=="fixture bytes at a stale name","failed resume preserves partial evidence")
 cleanup_tree(root)
 print(to_string(passed)+" passed; "+to_string(failed)+" failed")
 if failed>0 { exit(1) }

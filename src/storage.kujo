@@ -153,6 +153,8 @@ export func recover_record(state, id) {
 }
 
 export func inspect_transactions(state, after, limit) {
+    problem := validate_state_path(state)
+    if problem != "" { return {"entries":[],"warnings":[{"id":"","code":"unsafe_state","error":problem}],"truncated":true,"next_after":after,"read_bytes":0} }
     mut entries := []; mut warnings := []; mut next_after := after; mut read_bytes := 0
     page := directory_page(state + "/transactions",after,limit)
     if !page["ok"] { return {"entries":[],"warnings":[{"id":"","code":"unsafe_state","error":page["error"]}],"truncated":true,"next_after":after} }
@@ -202,6 +204,8 @@ func read_record_file(state, id) {
 }
 
 export func list_records(state, kind, after, limit) {
+    problem := validate_state_path(state)
+    if problem != "" { return {"records":[],"checksums":{},"warnings":[{"id":"","code":"unsafe_state","error":problem}],"truncated":true,"next_after":after,"read_bytes":0} }
     mut records := []; mut warnings := []; mut checksums := {}; mut next_after := after; mut read_bytes := 0
     page := directory_page(records_dir(state), after, limit)
     if !page["ok"] { return {"records":[],"checksums":{},"warnings":[{"id":"","code":"unsafe_state","error":page["error"]}],"truncated":true,"next_after":after,"read_bytes":0} }

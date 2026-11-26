@@ -16,6 +16,7 @@ func flush_inventory(root, ledger) {
 }
 func inventory_file(root, relative, maximum, ledger) {
     receipt := confined_digest(root+"/"+relative,maximum)
+    if starts_with(relative,"artifacts/") && relative!="artifacts/"+receipt["sha256"]+".blob" { throw("backup artifact bytes do not match the digest in its filename") }
     entry := {"path":relative,"sha256":receipt["sha256"],"bytes":receipt["bytes"]}
     ledger["entries"] = push(ledger["entries"],entry)
     ledger["files"] = ledger["files"]+1; ledger["bytes"] = ledger["bytes"]+receipt["bytes"]
@@ -126,7 +127,8 @@ export func restore_with_checkpoints(backup, destination, expected, key, checkpo
         if validate_state_path(parent)!="" || !path_is_dir(parent) { throw("restore requires an existing safe parent directory") }
         stage = create_temp_dir(parent,".assetworks-restore-"); checkpoint("restore-staging-created")
         mut previous := ""; mut files := 0; mut bytes := 0
-        for index in range(0,manifest["pages"]) {
+        mut index := 0
+        while index < manifest["pages"] {
             page_text := confined_read(backup+"/inventory/"+to_string(index)+".json",1048576)
             page_result := parse_object(page_text,"backup inventory"); if !page_result["ok"] { throw("invalid inventory page") }; page := page_result["value"]
             if get(page,"previous",null)!=previous || type(get(page,"entries",null))!="array" || len(page["entries"])<1 || len(page["entries"])>1000 { throw("inventory chain or bounds mismatch") }
@@ -134,12 +136,14 @@ export func restore_with_checkpoints(backup, destination, expected, key, checkpo
             for entry in page["entries"] {
                 if type(entry)!="dict" || !safe_backup_path(get(entry,"path",null)) || type(get(entry,"bytes",null))!="int" || entry["bytes"]<0 || entry["bytes"]>4294967296 || type(get(entry,"sha256",null))!="string" || !regex_match(entry["sha256"],"^[a-f0-9]{64}$") { throw("unsafe inventory entry") }
                 relative := entry["path"]; output := relative
+                if starts_with(relative,"artifacts/") && relative!="artifacts/"+entry["sha256"]+".blob" { throw("inventory artifact path and digest disagree") }
                 maximum := 4194304
                 if starts_with(relative,"state/") { output = substring(relative,6,len(relative)) } else { maximum=4294967296 }
                 copied := confined_copy(backup+"/"+relative,stage+"/"+output,maximum); checkpoint("restore-copy:"+output)
                 if copied["sha256"]!=entry["sha256"] || copied["bytes"]!=entry["bytes"] { throw("backup file digest mismatch") }
                 files = files+1; bytes = bytes+copied["bytes"]
             }
+            index = index+1
         }
         if previous!=get(manifest,"tip",null) || files!=get(manifest,"files",null) || bytes!=get(manifest,"bytes",null) { throw("inventory terminal receipt mismatch") }
         for collection in ["records","history","locks"] { confined_write(stage+"/"+collection+"/.assetworks-directory","AssetWorks managed directory\n",false); checkpoint("restore-directory:"+collection) }

@@ -8,6 +8,12 @@ export func safe_event_id(id) { return type(id) == "string" && regex_match(id, "
 func failure(code, error) { return {"ok": false, "code": code, "error": error} }
 
 export func load_event(state, id) {
+    problem := validate_state_path(state)
+    if problem != "" { return failure("unsafe_state", problem) }
+    return read_event_file(state, id)
+}
+
+func read_event_file(state, id) {
     if !safe_event_id(id) { return failure("invalid_event_id", "event filename must be 32 lowercase hex characters") }
     dir := history_dir(state)
     problem := validate_state_path(dir)
@@ -41,6 +47,8 @@ export func reconcile_record(state, record, checksum) {
 }
 
 export func list_history(state, after, limit, reconcile) {
+    problem := validate_state_path(state)
+    if problem != "" { return {"events":[],"warnings":[{"id":"","code":"unsafe_state","error":problem}],"truncated":true,"next_after":after,"read_bytes":0} }
     mut events := []; mut warnings := []; mut next_after := after; mut read_bytes := 0
     page := directory_page(history_dir(state),after,limit)
     if !page["ok"] { return {"events":[],"warnings":[{"id":"","code":"unsafe_state","error":page["error"]}],"truncated":true,"next_after":after} }
@@ -50,7 +58,7 @@ export func list_history(state, after, limit, reconcile) {
         next_after = page_cursor(page,name)
         if ends_with(name,".json") {
             id := substring(name,0,len(name)-5)
-            loaded := load_event(state,id); read_bytes = read_bytes + get(loaded,"read_bytes",32768)
+            loaded := read_event_file(state,id); read_bytes = read_bytes + get(loaded,"read_bytes",32768)
             if loaded["ok"] {
                 event := loaded["value"]; events = push(events,{"id":id,"event":event})
                 if reconcile {
